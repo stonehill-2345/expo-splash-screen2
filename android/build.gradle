@@ -1,0 +1,27 @@
+apply plugin: 'com.android.library'
+
+group = 'host.exp.exponent'
+version = '1.0.0'
+
+def expoModulesCorePlugin = new File(project(":expo-modules-core").projectDir.absolutePath, "ExpoModulesCorePlugin.gradle")
+apply from: expoModulesCorePlugin
+applyKotlinExpoModulesCorePlugin()
+useCoreDependencies()
+useDefaultAndroidSdkVersions()
+useExpoPublishing()
+
+android {
+  namespace "expo.modules.splashhtml"
+  defaultConfig {
+    versionCode 1
+    versionName '1.0.0'
+    consumerProguardFiles "consumer-rules.pro"
+  }
+}
+
+dependencies {
+  implementation 'com.facebook.react:react-android'
+  implementation 'androidx.appcompat:appcompat:1.2.0'
+  implementation "org.jetbrains.kotlin:kotlin-reflect:${kotlinVersion()}"
+}
+

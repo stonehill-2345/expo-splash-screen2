@@ -1,0 +1,21 @@
+
+# dependencies
+node_modules/
+
+# macOS
+.DS_Store
+.plugin/.DS_Store
+
+# Expo
+.expo/
+
+# Build artifacts
+android/build/
+ios/build/
+plugin/build/
+plugin/tsconfig.tsbuildinfo
+
+# IDE and tool directories
+.kiro/
+.trae/
+.git

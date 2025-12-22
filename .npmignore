@@ -1,0 +1,67 @@
+# 开发和示例文件
+example/
+
+# 注意：README.md 会被 npm 自动包含，这是正常的
+# README.md 应该保留，因为它包含使用说明
+# *.md
+# README.md
+CHANGELOG.md
+
+# 开发配置
+.vscode/
+.idea/
+.git/
+.github/
+.gitlab/
+.DS_Store
+
+# 测试文件
+**/__tests__/
+**/__fixtures__/
+**/__mocks__/
+*.test.ts
+*.test.tsx
+*.test.js
+*.test.jsx
+*.spec.ts
+*.spec.tsx
+*.spec.js
+*.spec.jsx
+
+# 构建工具
+tsconfig.json
+.eslintrc.js
+.prettierrc
+.editorconfig
+
+# 日志和临时文件
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+
+# 源码映射（可选，如果不想发布）
+# *.map
+
+# 锁文件（不应该发布到npm）
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Node modules
+node_modules/
+
+# Build artifacts that aren't needed
+.turbo/
+.expo/
+
+# Android build artifacts (不要发布编译产物)
+android/build/
+android/.gradle/
+android/local.properties
+
+# iOS build artifacts (不要发布编译产物)
+ios/build/
+ios/Pods/
+ios/.xcode.env.local
+

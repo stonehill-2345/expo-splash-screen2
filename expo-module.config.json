@@ -1,0 +1,10 @@
+{
+  "platforms": ["android", "ios"],
+  "android": {
+    "modules": ["expo.modules.splashhtml.SplashScreen2Module"]
+  },
+  "ios": {
+    "modules": ["SplashScreen2Module"]
+  }
+}
+

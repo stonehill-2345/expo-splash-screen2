@@ -1,0 +1,79 @@
+{
+  "name": "expo-splash-screen2",
+  "version": "1.0.0",
+  "description": "Enhance the development experience on the basis of expo-splash-screen  with web and .9",
+  "main": "build",
+  "types": "build",
+  "files": [
+    "build",
+    "android/build.gradle",
+    "android/src",
+    "android/consumer-rules.pro",
+    "ios/*.swift",
+    "ios/*.podspec",
+    "src",
+    "plugin/build",
+    "app.plugin.js",
+    "expo-module.config.json",
+    "scripts",
+    "expo-splash-web",
+    "!**/__tests__",
+    "!**/__fixtures__",
+    "!**/__mocks__",
+    "!**/*.map"
+  ],
+  "scripts": {
+    "build": "pnpm run build:plugin",
+    "build:plugin": "cd plugin && npx tsc --project tsconfig.json",
+    "build:demo": "cd plugin && npx tsc --project tsconfig.json && node ../scripts/sync-plugin-build.js",
+    "build:module": "expo-module build",
+    "build:module:once": "expo-module tsc --noEmit false && expo-module tsc",
+    "build:all": "expo-module tsc && pnpm run build:plugin",
+    "clean": "expo-module clean && cd plugin && rm -rf build",
+    "lint": "expo-module lint",
+    "test": "expo-module test",
+    "prepare": "expo-module prepare && pnpm run build:plugin",
+    "prepublishOnly": "expo-module prepublishOnly",
+    "expo-module": "expo-module",
+    "preinstall": "node scripts/preinstall.js",
+    "postinstall": "node scripts/postinstall.js",
+    "sync:plugin": "node scripts/sync-plugin-build.js",
+    "release": "standard-version",
+    "release:minor": "standard-version --release-as minor",
+    "release:major": "standard-version --release-as major",
+    "release:patch": "standard-version --release-as patch",
+    "build:expo-splash-web": "node expo-splash-web/build-splash-web.js",
+    "dev:expo-splash-web": "node expo-splash-web/dev-splash-web.js"
+  },
+  "homepage": "https://github.com/stonehill-2345/expo-splash-screen2",
+  "keywords": [
+    "react-native",
+    "expo",
+    "expo-splash-screen",
+    "splash-screen",
+    "splash",
+    "launch-screen",
+    "launch",
+    "webview",
+    "html"
+  ],
+  "author": "stonehill-2345",
+  "license": "MIT",
+  "dependencies": {
+    "@expo/prebuild-config": "^54.0.6",
+    "xml2js": "^0.6.0",
+    "xmlbuilder": "^15.1.1"
+  },
+  "devDependencies": {
+    "@expo/npm-proofread": "^1.0.1",
+    "@types/node": "^20.0.0",
+    "@types/xml2js": "^0.4.14",
+    "expo-modules-core": "*",
+    "expo-module-scripts": "^3.0.0",
+    "standard-version": "^9.5.0",
+    "typescript": "^5.0.0"
+  },
+  "peerDependencies": {
+    "expo": "*"
+  }
+}
