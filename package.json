@@ -1,6 +1,6 @@
 {
   "name": "expo-splash-screen2",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Enhance the development experience on the basis of expo-splash-screen  with web and .9",
   "main": "build",
   "types": "build",
