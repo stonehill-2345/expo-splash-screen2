@@ -48,7 +48,7 @@ const CONTAINER_ID = 'EXPO-ContainerView';
 function getSplashHtmlConfig(config: any): SplashHtmlConfig | null {
   const plugins = config.plugins || [];
   for (const plugin of plugins) {
-    if (Array.isArray(plugin) && plugin[0] === 'expo-splash-html') {
+    if (Array.isArray(plugin) && plugin[0] === 'expo-splash-screen2') {
       return plugin[1] || {};
     }
   }
@@ -2085,10 +2085,7 @@ function modifyAndroidManifestForBlendMode(
     return manifest;
   }
 
-  // Modify application's android:icon attribute
-  if (mainApplication.$) {
-    mainApplication.$['android:icon'] = '@drawable/splashscreen_logo';
-  }
+  
 
   const mainActivityIndex = mainApplication.activity.findIndex((activity: any) => {
     const name = activity.$?.['android:name'];
@@ -2146,12 +2143,63 @@ function modifyAndroidManifestForBlendMode(
       ],
     };
 
+    // Remove MainActivity's LAUNCHER intent-filter to ensure SplashScreen2Activity is the launch Activity
+    if (mainActivity['intent-filter']) {
+      mainActivity['intent-filter'] = mainActivity['intent-filter'].filter(
+        (filter: any) => {
+          const action = filter.action?.[0]?.$?.['android:name'];
+          const category = filter.category?.[0]?.$?.['android:name'];
+          return !(
+            action === 'android.intent.action.MAIN' &&
+            category === 'android.intent.category.LAUNCHER'
+          );
+        }
+      );
+    }
+
     mainApplication.activity.push(customSplashActivity);
   } else {
     const existingCustomSplashActivity = mainApplication.activity[customSplashActivityIndex];
     if (existingCustomSplashActivity && existingCustomSplashActivity.$) {
       existingCustomSplashActivity.$['android:theme'] = '@style/Theme.App.SplashScreen';
     }
+
+    // Also remove MainActivity's LAUNCHER intent-filter if SplashScreen2Activity already exists
+    // This ensures SplashScreen2Activity remains the launch Activity
+    if (mainActivity['intent-filter']) {
+      mainActivity['intent-filter'] = mainActivity['intent-filter'].filter(
+        (filter: any) => {
+          const action = filter.action?.[0]?.$?.['android:name'];
+          const category = filter.category?.[0]?.$?.['android:name'];
+          return !(
+            action === 'android.intent.action.MAIN' &&
+            category === 'android.intent.category.LAUNCHER'
+          );
+        }
+      );
+    }
+  }
+
+  // Add SplashScreen2PrivacyPolicyActivity
+  const hasPrivacyPolicy = mainApplication.activity.some((activity: any) => {
+    const name = activity.$?.['android:name'];
+    return (
+      name === '.SplashScreen2PrivacyPolicyActivity' ||
+      name === 'SplashScreen2PrivacyPolicyActivity' ||
+      name?.endsWith('.SplashScreen2PrivacyPolicyActivity') ||
+      name === `${packageName}.SplashScreen2PrivacyPolicyActivity`
+    );
+  });
+
+  if (!hasPrivacyPolicy) {
+    const privacyPolicyActivity: any = {
+      $: {
+        'android:name': '.SplashScreen2PrivacyPolicyActivity',
+      },
+    };
+    
+
+    mainApplication.activity.push(privacyPolicyActivity);
   }
 
   return manifest;
@@ -2175,9 +2223,9 @@ function modifyAndroidManifest(
   }
 
   // Modify application's android:icon attribute
-  if (mainApplication.$) {
-    mainApplication.$['android:icon'] = '@drawable/splashscreen_logo';
-  }
+  // if (mainApplication.$) {
+  //   mainApplication.$['android:icon'] = '@drawable/splashscreen_logo';
+  // }
 
   const mainActivityIndex = mainApplication.activity.findIndex((activity: any) => {
     const name = activity.$?.['android:name'];
@@ -2320,6 +2368,11 @@ function modifyStylesForImageMode(styles: any[]): any[] {
     _: `@drawable/${drawableName}`,
   };
 
+  const statusBarColorItem = {
+    $: { name: 'android:statusBarColor' },
+    _: '#00000000',
+  };
+
   if (existingStyleIndex > -1) {
     // If style exists, update or add windowBackground item
     const existingStyle = styles[existingStyleIndex];
@@ -2339,11 +2392,24 @@ function modifyStylesForImageMode(styles: any[]): any[] {
       // Add new windowBackground
       existingStyle.item.push(windowBackgroundItem);
     }
+
+    // Find existing statusBarColor item
+    const statusBarColorIndex = existingStyle.item.findIndex(
+      (item: any) => item.$?.name === 'android:statusBarColor'
+    );
+
+    if (statusBarColorIndex > -1) {
+      // Replace existing statusBarColor
+      existingStyle.item[statusBarColorIndex] = statusBarColorItem;
+    } else {
+      // Add new statusBarColor
+      existingStyle.item.push(statusBarColorItem);
+    }
   } else {
     // If style doesn't exist, create new style
     const newStyle = {
       $: { name: styleName, parent: 'AppTheme' },
-      item: [windowBackgroundItem],
+      item: [windowBackgroundItem, statusBarColorItem],
     };
     styles.push(newStyle);
   }
@@ -2369,7 +2435,7 @@ function modifyStylesXml(content: string, backgroundColor: string = '#ffffff'): 
   );
   
   if (styleRegex.test(content)) {
-    // Replace android:windowBackground
+    // Replace android:windowBackground and android:statusBarColor
     content = content.replace(
       styleRegex,
       (match, styleStart, styleContent, styleEnd) => {
@@ -2387,6 +2453,21 @@ function modifyStylesXml(content: string, backgroundColor: string = '#ffffff'): 
           // Add android:windowBackground
           styleContent = styleContent.trim() + `\n    <item name="android:windowBackground">@drawable/${drawableName}</item>`;
         }
+
+        // Replace or add android:statusBarColor
+        const statusBarColorRegex = /<item\s+name\s*=\s*["']android:statusBarColor["']\s*>[\s\S]*?<\/item>/i;
+        
+        if (statusBarColorRegex.test(styleContent)) {
+          // Replace existing android:statusBarColor
+          styleContent = styleContent.replace(
+            statusBarColorRegex,
+            `    <item name="android:statusBarColor">#00000000</item>`
+          );
+        } else {
+          // Add android:statusBarColor
+          styleContent = styleContent.trim() + `\n    <item name="android:statusBarColor">#00000000</item>`;
+        }
+
         return styleStart + styleContent + styleEnd;
       }
     );
@@ -2414,11 +2495,12 @@ function modifyStylesXml(content: string, backgroundColor: string = '#ffffff'): 
       const mainActivityStyle = `
   <style name="${mainActivityStyleName}" parent="AppTheme">
     <item name="android:windowBackground">#${colorWithAlpha.substring(1)}</item>
+    <item name="android:statusBarColor">#00000000</item>
   </style>`;
       content = content.replace(resourcesEndRegex, mainActivityStyle + '\n</resources>');
     }
   } else {
-    // If theme already exists, update windowBackground
+    // If theme already exists, update windowBackground and statusBarColor
     content = content.replace(
       mainActivityStyleRegex,
       (match, styleStart, styleContent, styleEnd) => {
@@ -2432,6 +2514,21 @@ function modifyStylesXml(content: string, backgroundColor: string = '#ffffff'): 
         } else {
           styleContent = styleContent.trim() + `\n    <item name="android:windowBackground">#${colorWithAlpha.substring(1)}</item>`;
         }
+
+        // Replace or add android:statusBarColor
+        const statusBarColorRegex = /<item\s+name\s*=\s*["']android:statusBarColor["']\s*>[\s\S]*?<\/item>/i;
+        
+        if (statusBarColorRegex.test(styleContent)) {
+          // Replace existing android:statusBarColor
+          styleContent = styleContent.replace(
+            statusBarColorRegex,
+            `    <item name="android:statusBarColor">#00000000</item>`
+          );
+        } else {
+          // Add android:statusBarColor
+          styleContent = styleContent.trim() + `\n    <item name="android:statusBarColor">#00000000</item>`;
+        }
+
         return styleStart + styleContent + styleEnd;
       }
     );
@@ -4518,7 +4615,8 @@ function modifyAppDelegateForBlendMode(content: string, imageFileName: string, b
     }
     
     return nil
-  }`;
+  }
+`;
       
       modifiedContent = modifiedContent.substring(0, firstMethodIndex) + helperFunctionCode + modifiedContent.substring(firstMethodIndex);
     }
