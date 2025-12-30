@@ -15,6 +15,7 @@
   - [WebView Mode](#webview-mode)
   - [ResponsiveImage Mode](#responsiveimage-mode)
   - [Normal Mode](#normal-mode)
+  - [Blend Mode](#blend-mode)
   - [Dark Mode Support](#dark-mode-support)
 - [📱 Platform-Specific Details](#-platform-specific-details)
   - [iOS Configuration](#-ios-configuration)
@@ -143,7 +144,7 @@ Your app now has a custom WebView-based splash screen. For more advanced configu
 
 ### Display Modes
 
-`expo-splash-screen2` provides three splash screen modes to fit different use cases:
+`expo-splash-screen2` provides four splash screen modes to fit different use cases:
 
 #### `webview` Mode
 
@@ -170,6 +171,16 @@ Display a centered image with fixed width (default 100px), maintaining aspect ra
 - Centered on screen with background color
 - **Supports dark mode** with separate image and background color
 - Best for logo-centric splash screens
+
+#### `blend` Mode
+
+Combine a `.9.png` background image with WebView HTML content for enhanced splash screen experience.
+
+- Uses `.9.png` image as system splash screen background
+- WebView container uses transparent background (recommended) for seamless transition
+- Full HTML/JavaScript/CSS support in WebView overlay
+- Perfect for achieving smooth transition from system splash to custom animated splash
+- Best for apps requiring both native performance and rich animations
 
 ### Dark Mode Support (Normal Mode)
 
@@ -397,6 +408,12 @@ Display a centered image with fixed width, maintaining aspect ratio. Supports da
   </tbody>
 </table>
 
+#### `blend` Mode
+
+Combine a `.9.png` background image with WebView HTML content for enhanced splash screen experience. The system splash screen uses the `.9.png` image as background, and the WebView container uses transparent background (recommended) for seamless transition.
+
+**Note**: Blend mode combines the visual appearance of `responsiveImage` mode (`.9.png` background) with the functionality of `webview` mode (HTML content overlay). This creates a smooth transition from the system splash screen to the custom animated splash screen.
+
 ## 💻 Installation
 
 ### Installation in managed Expo projects
@@ -508,6 +525,15 @@ Display HTML content with full JavaScript/CSS support:
 }
 ```
 
+> **Note**: For `webview` and `blend` modes, you must install `react-native-web` to build web files:
+> ```bash
+> npm install react-native-web
+> # or
+> pnpm add react-native-web
+> # or
+> yarn add react-native-web
+> ```
+
 #### WebView Mode Options
 
 | Option | Type | Required | Description |
@@ -576,6 +602,55 @@ Display a centered image with fixed width:
 | `image` | `string` | Yes | Path to splash icon image |
 | `imageWidth` | `number` | No | Image width in dp/pt (default: `100`) |
 | `dark` | `object` | No | Dark mode configuration |
+
+### Blend Mode
+
+Combine a `.9.png` background image with WebView HTML content for enhanced splash screen experience:
+
+```json
+{
+  "expo": {
+    "plugins": [
+      [
+        "expo-splash-screen2",
+        {
+          "mode": "blend",
+          "image": "./assets/splash-background.9.png"
+        }
+      ]
+    ]
+  }
+}
+```
+
+> **Note**: For `webview` and `blend` modes, you must install `react-native-web` to build web files:
+> ```bash
+> npm install react-native-web
+> # or
+> pnpm add react-native-web
+> # or
+> yarn add react-native-web
+> ```
+
+#### Blend Mode Options
+
+| Option | Type | Required | Description |
+|--------|------|----------|-------------|
+| `mode` | `"blend"` | Yes | Enable blend mode (`.9.png` background + WebView) |
+| `image` | `string` | Yes | Path to background image (supports `.9.png`) |
+| `localHtmlPath` | `string` | No | Path to custom HTML file |
+
+**How Blend Mode Works:**
+
+- **System Splash Screen**: Uses `.9.png` image as background (Android 12+ system splash screen)
+- **WebView Container**: Uses transparent background (recommended) to show the system splash screen background for seamless visual continuity
+- **HTML Overlay**: Displays custom HTML content in WebView on top of the background
+- **Transition**: Smooth transition from system splash to WebView splash without visual gaps
+
+This mode is ideal when you want:
+- Native performance of system splash screen
+- Rich animations and interactivity from HTML/WebView
+- Seamless visual transition between system and custom splash screens
 
 ### Dark Mode Support
 
@@ -693,6 +768,28 @@ For Normal mode, the plugin:
    - Set background to use `SplashScreenBackground` colorset
    - Add width constraint (default 100pt) to Image View
 4. Modify `AppDelegate.swift` to add image container view with width constraints
+
+#### Blend Mode
+
+For Blend mode, the plugin:
+
+1. **Copies background image**: Places `.9.png` image file as `splash_background_image.{ext}` in `ios/{projectName}/` directory
+2. **Copies HTML files**: Places HTML files from `expo-splash-web/dist` or `localHtmlPath` to `ios/{projectName}/` directory
+3. **Modifies `SplashScreen.storyboard`**: Sets full-screen background image with `scaleAspectFill` content mode (same as ResponsiveImage mode)
+4. **Modifies `AppDelegate.swift`**: Adds WebView overlay code with transparent background (recommended)
+
+**Manual steps** (if needed):
+
+1. Copy `.9.png` background image to `ios/{projectName}/splash_background_image.{ext}`
+2. Copy HTML file to `ios/{projectName}/index.html`
+3. Modify `SplashScreen.storyboard`:
+   - Set Image View to use `splash_background_image` image
+   - Set Content Mode to `Aspect Fill` for full-screen coverage
+   - Set background color (fallback)
+4. Modify `AppDelegate.swift`:
+   - Add WebView container code (see plugin source for template)
+   - Set WebView container background to transparent (recommended) for seamless transition
+5. Add image and HTML files to Xcode project file references
 
 ### 🤖 Android Configuration
 
@@ -814,6 +911,45 @@ For Normal mode, the plugin:
    </style>
    ```
 7. Modify `MainActivity.kt` to add image container view with fixed width (default 100dp)
+
+#### Blend Mode
+
+For Blend mode, the plugin:
+
+1. **Copies background image**: Places `.9.png` image as `splash_background_image.{ext}` in `android/app/src/main/res/drawable/`
+2. **Copies HTML file**: Places HTML file from `expo-splash-web/dist/index.html` or `localHtmlPath` to `android/app/src/main/assets/index.html`
+3. **Creates CustomSplashActivity**: Generates `SplashScreen2Activity.kt` with transparent WebView container background (recommended)
+4. **Modifies AndroidManifest.xml**: Adds `SplashScreen2Activity` as launcher activity, sets `MainActivity` theme to `Theme.App.SplashScreen`
+5. **Modifies MainActivity.kt**: Adds WebView container code with transparent background (recommended)
+6. **Modifies styles.xml**: Updates `Theme.App.SplashScreen` to use `.9.png` background image
+7. **Creates colors.xml**: Creates `splashscreen_background` color resource
+8. **Updates build.gradle**: Adds `androidx.core:core-splashscreen` dependency
+
+**Manual steps** (if needed):
+
+1. Copy `.9.png` background image to `android/app/src/main/res/drawable/splash_background_image.{ext}`
+2. Copy HTML file to `android/app/src/main/assets/index.html`
+3. Create `SplashScreen2Activity.kt` in `android/app/src/main/java/{packageName}/`:
+   - Set WebView container background to transparent (recommended, see plugin templates)
+4. Modify `AndroidManifest.xml`:
+   - Add `SplashScreen2Activity` as launcher activity
+   - Set `MainActivity` theme to `Theme.App.SplashScreen` (same as splash screen theme)
+5. Modify `MainActivity.kt`:
+   - Add WebView container code
+   - Set WebView container background to transparent (recommended) for seamless transition
+6. Update `res/values/styles.xml`:
+   ```xml
+   <style name="Theme.App.SplashScreen" parent="Theme.SplashScreen">
+     <item name="android:windowBackground">@drawable/splash_background_image</item>
+   </style>
+   ```
+7. Create `res/values/colors.xml`:
+   ```xml
+   <resources>
+     <color name="splashscreen_background">#FFFFFF</color>
+   </resources>
+   ```
+8. Add `androidx.core:core-splashscreen:1.0.1` dependency to `build.gradle`
 
 ### Manual Regeneration
 

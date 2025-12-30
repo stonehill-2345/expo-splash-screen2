@@ -303,6 +303,88 @@ function isUsingPnpm() {
 }
 
 /**
+ * Check if react-native-web is installed in package.json
+ */
+function hasReactNativeWeb(projectRoot) {
+  const packageJsonPath = path.join(projectRoot, 'package.json');
+  
+  if (!fs.existsSync(packageJsonPath)) {
+    return false;
+  }
+  
+  try {
+    const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
+    
+    // Check in dependencies, devDependencies, and peerDependencies
+    return !!(
+      (packageJson.dependencies && packageJson.dependencies['react-native-web']) ||
+      (packageJson.devDependencies && packageJson.devDependencies['react-native-web']) ||
+      (packageJson.peerDependencies && packageJson.peerDependencies['react-native-web'])
+    );
+  } catch (error) {
+    return false;
+  }
+}
+
+/**
+ * Install react-native-web dependency
+ */
+function installReactNativeWeb(projectRoot) {
+  console.log(`[expo-splash-screen2] ⚠️  react-native-web is required but not found in package.json`);
+  console.log(`[expo-splash-screen2] Installing react-native-web...`);
+  
+  const { execSync } = require('child_process');
+  
+  // First try using npm
+  try {
+    console.log(`[expo-splash-screen2] Trying to install react-native-web with npm...`);
+    execSync('npm install react-native-web', {
+      cwd: projectRoot,
+      stdio: 'inherit',
+      env: { ...process.env }
+    });
+    console.log(`[expo-splash-screen2] ✓ Successfully installed react-native-web with npm`);
+    return true;
+  } catch (npmError) {
+    console.warn(`[expo-splash-screen2] ⚠️  npm installation failed:`, npmError.message);
+    console.log(`[expo-splash-screen2] Trying to install react-native-web with pnpm...`);
+    
+    // If npm fails, try pnpm
+    try {
+      execSync('pnpm add react-native-web', {
+        cwd: projectRoot,
+        stdio: 'inherit',
+        env: { ...process.env }
+      });
+      console.log(`[expo-splash-screen2] ✓ Successfully installed react-native-web with pnpm`);
+      return true;
+    } catch (pnpmError) {
+      console.error(`[expo-splash-screen2] ❌ pnpm installation also failed:`, pnpmError.message);
+      console.error(`[expo-splash-screen2] ❌ All installation methods failed, please manually install react-native-web:`);
+      console.error(`[expo-splash-screen2]   npm install react-native-web`);
+      console.error(`[expo-splash-screen2]   or`);
+      console.error(`[expo-splash-screen2]   pnpm add react-native-web`);
+      return false;
+    }
+  }
+}
+
+/**
+ * Ensure react-native-web is installed
+ */
+function ensureReactNativeWeb(projectRoot) {
+  if (hasReactNativeWeb(projectRoot)) {
+    console.log(`[expo-splash-screen2] ✓ react-native-web is already installed`);
+    return true;
+  }
+  
+  console.log(`[expo-splash-screen2] ⚠️  react-native-web is required for @ued2345/react-native-splash`);
+  console.log(`[expo-splash-screen2] This plugin uses WebView to display HTML splash screens, which requires react-native-web`);
+  
+  return installReactNativeWeb(projectRoot);
+}
+
+/**
  * Print manual setup instructions (prominent format)
  */
 function printManualSetupInstructions() {
@@ -315,12 +397,13 @@ function printManualSetupInstructions() {
   console.error('');
   console.error('  node node_modules/expo-splash-screen2/scripts/setup.js');
   console.error('');
-  console.error('This script will automatically perform the following operations:');
-  console.error('  1. Copy expo-splash-web folder to project root');
-  console.error('  2. Update app.json to add plugin configuration');
-  console.error('  3. Update package.json to add build commands');
-  console.error('  4. Remove expo-splash-screen dependency');
-  console.error('');
+    console.error('This script will automatically perform the following operations:');
+    console.error('  1. Copy expo-splash-web folder to project root');
+    console.error('  2. Update app.json to add plugin configuration');
+    console.error('  3. Update package.json to add build commands');
+    console.error('  4. Remove expo-splash-screen dependency');
+    console.error('  5. Install react-native-web dependency (required)');
+    console.error('');
   console.error('═══════════════════════════════════════════════════════════════');
   console.error('');
 }
@@ -382,6 +465,14 @@ function main() {
       hasError = true;
       if (errorMessage) errorMessage += ', ';
       errorMessage += 'Failed to remove expo-splash-screen dependency';
+    }
+
+    // 5. Ensure react-native-web is installed (required dependency)
+    if (!ensureReactNativeWeb(projectRoot)) {
+      console.warn(`[expo-splash-screen2] ⚠ Failed to install react-native-web`);
+      hasError = true;
+      if (errorMessage) errorMessage += ', ';
+      errorMessage += 'Failed to install react-native-web (required dependency)';
     }
 
     if (!hasError) {

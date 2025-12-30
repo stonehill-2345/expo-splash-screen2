@@ -15,6 +15,7 @@
   - [WebView 模式](#webview-模式)
   - [ResponsiveImage 模式](#responsiveimage-模式)
   - [Normal 模式](#normal-模式)
+  - [Blend 模式](#blend-模式)
   - [深色模式支持](#深色模式支持)
 - [📱 平台特定详情](#-平台特定详情)
   - [iOS 配置](#-ios-配置)
@@ -143,7 +144,7 @@ npx expo prebuild
 
 ### 显示模式
 
-`expo-splash-screen2` 提供三种启动屏幕模式以适应不同的使用场景：
+`expo-splash-screen2` 提供四种启动屏幕模式以适应不同的使用场景：
 
 #### `webview` 模式
 
@@ -170,6 +171,16 @@ npx expo prebuild
 - 在屏幕上居中显示，带背景颜色
 - **支持深色模式**，具有独立的图片和背景颜色
 - 最适合以 Logo 为中心的启动屏幕
+
+#### `blend` 模式
+
+结合 `.9.png` 背景图片和 WebView HTML 内容，增强开屏体验。
+
+- 使用 `.9.png` 图片作为系统启动屏幕背景
+- WebView 容器使用透明背景（推荐），实现无缝过渡
+- WebView 覆盖层支持完整的 HTML/JavaScript/CSS
+- 完美实现从系统启动屏幕到自定义动画启动屏幕的平滑过渡
+- 最适合需要原生性能和丰富动画的应用
 
 ### 深色模式支持（Normal 模式）
 
@@ -397,6 +408,12 @@ export default function RootLayout() {
   </tbody>
 </table>
 
+#### `blend` 模式
+
+结合 `.9.png` 背景图片和 WebView HTML 内容，增强开屏体验。系统启动屏幕使用 `.9.png` 图片作为背景，WebView 容器使用透明背景（推荐），实现无缝过渡。
+
+**注意**：Blend 模式结合了 `responsiveImage` 模式的视觉效果（`.9.png` 背景）和 `webview` 模式的功能（HTML 内容覆盖层）。这实现了从系统启动屏幕到自定义动画启动屏幕的平滑过渡。
+
 ## 💻 安装
 
 ### 在托管 Expo 项目中安装
@@ -508,6 +525,15 @@ npx expo prebuild
 }
 ```
 
+> **注意**：对于 `webview` 和 `blend` 模式，必须安装 `react-native-web` 来打包 web 文件：
+> ```bash
+> npm install react-native-web
+> # 或
+> pnpm add react-native-web
+> # 或
+> yarn add react-native-web
+> ```
+
 #### WebView 模式选项
 
 | 选项 | 类型 | 必需 | 描述 |
@@ -576,6 +602,55 @@ npx expo prebuild
 | `image` | `string` | 是 | 启动图标图片路径 |
 | `imageWidth` | `number` | 否 | 图片宽度（单位：dp/pt，默认：`100`） |
 | `dark` | `object` | 否 | 深色模式配置 |
+
+### Blend 模式
+
+结合 `.9.png` 背景图片和 WebView HTML 内容，增强开屏体验：
+
+```json
+{
+  "expo": {
+    "plugins": [
+      [
+        "expo-splash-screen2",
+        {
+          "mode": "blend",
+          "image": "./assets/splash-background.9.png"
+        }
+      ]
+    ]
+  }
+}
+```
+
+> **注意**：对于 `webview` 和 `blend` 模式，必须安装 `react-native-web` 来打包 web 文件：
+> ```bash
+> npm install react-native-web
+> # 或
+> pnpm add react-native-web
+> # 或
+> yarn add react-native-web
+> ```
+
+#### Blend 模式选项
+
+| 选项 | 类型 | 必需 | 描述 |
+|--------|------|----------|-------------|
+| `mode` | `"blend"` | 是 | 启用混合模式（`.9.png` 背景 + WebView） |
+| `image` | `string` | 是 | 背景图片路径（支持 `.9.png`） |
+| `localHtmlPath` | `string` | 否 | 自定义 HTML 文件路径 |
+
+**Blend 模式工作原理：**
+
+- **系统启动屏幕**：使用 `.9.png` 图片作为背景（Android 12+ 系统启动屏幕）
+- **WebView 容器**：使用透明背景（推荐），以显示系统启动屏幕背景，实现视觉连续性
+- **HTML 覆盖层**：在背景之上显示自定义 HTML 内容
+- **过渡效果**：从系统启动屏幕到 WebView 启动屏幕的平滑过渡，无视觉间隙
+
+此模式适用于以下场景：
+- 需要系统启动屏幕的原生性能
+- 需要 HTML/WebView 的丰富动画和交互性
+- 需要系统启动屏幕和自定义启动屏幕之间的无缝视觉过渡
 
 ### 深色模式支持
 
@@ -693,6 +768,28 @@ npx expo prebuild
    - 将背景设置为使用 `SplashScreenBackground` colorset
    - 为 Image View 添加宽度约束（默认 100pt）
 4. 修改 `AppDelegate.swift` 以添加带有宽度约束的图片容器视图
+
+#### Blend 模式
+
+对于 Blend 模式，插件：
+
+1. **复制背景图片**：将 `.9.png` 图片文件作为 `splash_background_image.{ext}` 放置在 `ios/{projectName}/` 目录
+2. **复制 HTML 文件**：将 HTML 文件从 `expo-splash-web/dist` 或 `localHtmlPath` 放置到 `ios/{projectName}/` 目录
+3. **修改 `SplashScreen.storyboard`**：设置全屏背景图片，使用 `scaleAspectFill` 内容模式（与 ResponsiveImage 模式相同）
+4. **修改 `AppDelegate.swift`**：添加 WebView 覆盖层代码，使用透明背景（推荐）
+
+**手动步骤**（如需要）：
+
+1. 将 `.9.png` 背景图片复制到 `ios/{projectName}/splash_background_image.{ext}`
+2. 将 HTML 文件复制到 `ios/{projectName}/index.html`
+3. 修改 `SplashScreen.storyboard`：
+   - 将 Image View 设置为使用 `splash_background_image` 图片
+   - 将 Content Mode 设置为 `Aspect Fill` 以实现全屏覆盖
+   - 设置背景颜色（备用）
+4. 修改 `AppDelegate.swift`：
+   - 添加 WebView 容器代码（参见插件源代码中的模板）
+   - 将 WebView 容器背景设置为透明（推荐），实现无缝过渡
+5. 将图片和 HTML 文件添加到 Xcode 项目文件引用
 
 ### 🤖 Android 配置
 
@@ -814,6 +911,45 @@ npx expo prebuild
    </style>
    ```
 7. 修改 `MainActivity.kt` 以添加带有固定宽度（默认 100dp）的图片容器视图
+
+#### Blend 模式
+
+对于 Blend 模式，插件：
+
+1. **复制背景图片**：将 `.9.png` 图片作为 `splash_background_image.{ext}` 放置在 `android/app/src/main/res/drawable/`
+2. **复制 HTML 文件**：将 HTML 文件从 `expo-splash-web/dist/index.html` 或 `localHtmlPath` 放置到 `android/app/src/main/assets/index.html`
+3. **创建 CustomSplashActivity**：生成 `SplashScreen2Activity.kt`，使用透明 WebView 容器背景（推荐）
+4. **修改 AndroidManifest.xml**：将 `SplashScreen2Activity` 添加为启动活动，将 `MainActivity` 主题设置为 `Theme.App.SplashScreen`
+5. **修改 MainActivity.kt**：添加 WebView 容器代码，使用透明背景（推荐）
+6. **修改 styles.xml**：更新 `Theme.App.SplashScreen` 以使用 `.9.png` 背景图片
+7. **创建 colors.xml**：创建 `splashscreen_background` 颜色资源
+8. **更新 build.gradle**：添加 `androidx.core:core-splashscreen` 依赖
+
+**手动步骤**（如需要）：
+
+1. 将 `.9.png` 背景图片复制到 `android/app/src/main/res/drawable/splash_background_image.{ext}`
+2. 将 HTML 文件复制到 `android/app/src/main/assets/index.html`
+3. 在 `android/app/src/main/java/{packageName}/` 中创建 `SplashScreen2Activity.kt`：
+   - 将 WebView 容器背景设置为透明（推荐，参见插件模板）
+4. 修改 `AndroidManifest.xml`：
+   - 将 `SplashScreen2Activity` 添加为启动活动
+   - 将 `MainActivity` 主题设置为 `Theme.App.SplashScreen`（与启动屏幕主题相同）
+5. 修改 `MainActivity.kt`：
+   - 添加 WebView 容器代码
+   - 将 WebView 容器背景设置为透明（推荐），实现无缝过渡
+6. 更新 `res/values/styles.xml`：
+   ```xml
+   <style name="Theme.App.SplashScreen" parent="Theme.SplashScreen">
+     <item name="android:windowBackground">@drawable/splash_background_image</item>
+   </style>
+   ```
+7. 创建 `res/values/colors.xml`：
+   ```xml
+   <resources>
+     <color name="splashscreen_background">#FFFFFF</color>
+   </resources>
+   ```
+8. 在 `build.gradle` 中添加 `androidx.core:core-splashscreen:1.0.1` 依赖
 
 ### 手动重新生成
 

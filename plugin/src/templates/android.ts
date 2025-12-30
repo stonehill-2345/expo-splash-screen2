@@ -714,13 +714,15 @@ class SplashScreen2PrivacyPolicyActivity : AppCompatActivity() {
     }
   }
   
-  fun preventAutoHide() {
-    preventAutoHide = true
-    android.util.Log.d("MainActivity", "preventAutoHide called, preventAutoHide: $preventAutoHide")
-    // If WebView container doesn't exist, create it (when there's no privacy code, container may not be created yet)
-    if (webViewContainer == null) {
-      android.util.Log.d("MainActivity", "WebView container is null, creating it")
-      setupWebViewContainer()
+   fun preventAutoHide() {
+    runOnUiThread {
+      preventAutoHide = true
+      android.util.Log.d("MainActivity", "preventAutoHide called, preventAutoHide: $preventAutoHide")
+      // If WebView container doesn't exist, create it (when there's no privacy code, container may not be created yet)
+      if (webViewContainer == null) {
+        android.util.Log.d("MainActivity", "WebView container is null, creating it")
+        setupWebViewContainer()
+      }
     }
   }
   

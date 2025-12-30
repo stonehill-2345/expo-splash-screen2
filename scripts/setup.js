@@ -268,6 +268,101 @@ function addBuildCommand(projectRoot) {
 }
 
 /**
+ * 检测是否使用 pnpm
+ */
+function isUsingPnpm(checkRoot) {
+  // 检查环境变量
+  if (process.env.npm_config_user_agent) {
+    return process.env.npm_config_user_agent.includes('pnpm');
+  }
+  // 检查是否存在 pnpm-lock.yaml
+  const root = checkRoot || process.cwd();
+  return fs.existsSync(path.join(root, 'pnpm-lock.yaml'));
+}
+
+/**
+ * 检查 package.json 中是否已安装 react-native-web
+ */
+function hasReactNativeWeb(projectRoot) {
+  const packageJsonPath = path.join(projectRoot, 'package.json');
+  
+  if (!fs.existsSync(packageJsonPath)) {
+    return false;
+  }
+  
+  try {
+    const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
+    
+    // 检查 dependencies、devDependencies 和 peerDependencies
+    return !!(
+      (packageJson.dependencies && packageJson.dependencies['react-native-web']) ||
+      (packageJson.devDependencies && packageJson.devDependencies['react-native-web']) ||
+      (packageJson.peerDependencies && packageJson.peerDependencies['react-native-web'])
+    );
+  } catch (error) {
+    return false;
+  }
+}
+
+/**
+ * 安装 react-native-web 依赖
+ */
+function installReactNativeWeb(projectRoot) {
+  console.log(`[expo-splash-screen2] ⚠️  react-native-web 是必需的依赖，但在 package.json 中未找到`);
+  console.log(`[expo-splash-screen2] 正在安装 react-native-web...`);
+  
+  const { execSync } = require('child_process');
+  
+  // 先尝试使用 npm 安装
+  try {
+    console.log(`[expo-splash-screen2] 尝试使用 npm 安装 react-native-web...`);
+    execSync('npm install react-native-web', {
+      cwd: projectRoot,
+      stdio: 'inherit',
+      env: { ...process.env }
+    });
+    console.log(`[expo-splash-screen2] ✓ 使用 npm 成功安装 react-native-web`);
+    return true;
+  } catch (npmError) {
+    console.warn(`[expo-splash-screen2] ⚠️  npm 安装失败:`, npmError.message);
+    console.log(`[expo-splash-screen2] 尝试使用 pnpm 安装 react-native-web...`);
+    
+    // npm 失败后，尝试使用 pnpm 安装
+    try {
+      execSync('pnpm add react-native-web', {
+        cwd: projectRoot,
+        stdio: 'inherit',
+        env: { ...process.env }
+      });
+      console.log(`[expo-splash-screen2] ✓ 使用 pnpm 成功安装 react-native-web`);
+      return true;
+    } catch (pnpmError) {
+      console.error(`[expo-splash-screen2] ❌ pnpm 安装也失败:`, pnpmError.message);
+      console.error(`[expo-splash-screen2] ❌ 所有安装方式都失败，请手动安装 react-native-web:`);
+      console.error(`[expo-splash-screen2]   npm install react-native-web`);
+      console.error(`[expo-splash-screen2]   或`);
+      console.error(`[expo-splash-screen2]   pnpm add react-native-web`);
+      return false;
+    }
+  }
+}
+
+/**
+ * 确保 react-native-web 已安装
+ */
+function ensureReactNativeWeb(projectRoot) {
+  if (hasReactNativeWeb(projectRoot)) {
+    console.log(`[expo-splash-screen2] ✓ react-native-web 已安装`);
+    return true;
+  }
+  
+  console.log(`[expo-splash-screen2] ⚠️  react-native-web 是 @ued2345/react-native-splash 的必需依赖`);
+  console.log(`[expo-splash-screen2] 此插件使用 WebView 显示 HTML 启动页，需要 react-native-web`);
+  
+  return installReactNativeWeb(projectRoot);
+}
+
+/**
  * 从 package.json 中删除 expo-splash-screen 依赖
  */
 function removeExpoSplashScreenDependency(projectRoot) {
@@ -352,6 +447,11 @@ function main() {
     success = false;
   }
   console.log('');
+
+  // 5. 确保 react-native-web 已安装（必需依赖）
+  if (!ensureReactNativeWeb(projectRoot)) {
+    success = false;
+  }
 
   if (success) {
     console.log('[expo-splash-screen2] ✅ Setup completed successfully!');
