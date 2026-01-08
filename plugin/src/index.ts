@@ -2069,7 +2069,7 @@ function generatePrivacyPolicyActivity(
 }
 
 /**
- * Modify AndroidManifest.xml for Blend mode (MainActivity uses Theme.App.SplashScreen)
+ * Modify AndroidManifest.xml for Blend mode (MainActivity uses @style/AppTheme)
  */
 function modifyAndroidManifestForBlendMode(
   manifest: AndroidManifest,
@@ -2104,9 +2104,9 @@ function modifyAndroidManifestForBlendMode(
 
   const mainActivity = mainApplication.activity[mainActivityIndex];
   
-  // Set MainActivity's theme to Theme.App.SplashScreen (for blend mode, use same theme as splash screen)
+  // Set MainActivity's theme to @style/AppTheme (for blend mode, use same theme as splash screen)
   if (mainActivity && mainActivity.$) {
-    mainActivity.$['android:theme'] = '@style/Theme.App.SplashScreen';
+    mainActivity.$['android:theme'] = '@style/AppTheme';
   }
 
   const customSplashActivityIndex = mainApplication.activity.findIndex((activity: any) => {
@@ -2127,7 +2127,6 @@ function modifyAndroidManifestForBlendMode(
         'android:name': `.SplashScreen2Activity`,
         'android:configChanges':
           'keyboard|keyboardHidden|orientation|screenSize|screenLayout|uiMode',
-        'android:launchMode': 'singleTask',
         'android:windowSoftInputMode': 'adjustResize',
         'android:theme': '@style/Theme.App.SplashScreen',
         'android:exported': 'true' as any,
@@ -2267,7 +2266,6 @@ function modifyAndroidManifest(
         'android:name': `.SplashScreen2Activity`,
         'android:configChanges':
           'keyboard|keyboardHidden|orientation|screenSize|screenLayout|uiMode',
-        'android:launchMode': 'singleTask',
         'android:windowSoftInputMode': 'adjustResize',
         'android:theme': '@style/Theme.App.SplashScreen',
         'android:exported': 'true' as any,
