@@ -6,29 +6,88 @@ import WebKit
 public class SplashScreen2ViewController: UIViewController {
   private var webView: WKWebView?
   private var webViewContainer: UIView?
+  private var backgroundImageView: UIImageView? // 保存背景图片视图的引用，用于后续更新 frame
   private let userDefaults = UserDefaults.standard
   
   public static weak var appDelegate: AppDelegateProtocol?
   
+  // 获取全屏 frame，包括向上延伸 1px 以覆盖安全区域（与 SplashScreen.storyboard 保持一致）
+  private func getFullScreenFrame() -> CGRect {
+    let screenBounds: CGRect
+    if let window = view.window {
+      screenBounds = window.bounds
+    } else {
+      screenBounds = UIScreen.main.bounds
+    }
+    
+    // 向上延伸 1px，与 storyboard 的 constant="-1" 保持一致
+    return CGRect(
+      x: screenBounds.origin.x,
+      y: screenBounds.origin.y - 1,
+      width: screenBounds.width,
+      height: screenBounds.height + 1
+    )
+  }
+  
   public override func viewDidLoad() {
     super.viewDidLoad()
     
-    print("[SplashScreen2ViewController] viewDidLoad called")
+    print("[SplashScreen2ViewController111] viewDidLoad called")
     print("[SplashScreen2ViewController] viewDidLoad - view.frame: \(view.frame)")
     print("[SplashScreen2ViewController] viewDidLoad - view.bounds: \(view.bounds)")
     print("[SplashScreen2ViewController] viewDidLoad - view.superview: \(String(describing: view.superview))")
     print("[SplashScreen2ViewController] viewDidLoad - view.window: \(String(describing: view.window))")
     
-    // Set view's background color to the passed backgroundColor
-    // Convert hexadecimal color to UIColor
-    let hexColor = "#10021F".uppercased().replacingOccurrences(of: "#", with: "")
-    if hexColor.count == 6 {
-      let r = CGFloat(Int(hexColor.prefix(2), radix: 16) ?? 0) / 255.0
-      let g = CGFloat(Int(String(hexColor.dropFirst(2).prefix(2)), radix: 16) ?? 0) / 255.0
-      let b = CGFloat(Int(hexColor.suffix(2), radix: 16) ?? 0) / 255.0
-      view.backgroundColor = UIColor(red: r, green: g, blue: b, alpha: 1.0)
-    } else {
+    // Check if blend mode: look for splash_background_image file
+    // Blend mode will have this image file, webview mode will not
+    let possibleImageNames = [
+      "splash_background_image.png",
+      "splash_background_image.jpg",
+      "splash_background_image.jpeg",
+      "splash_background_image.9.png",
+      "splash_background_image.9.jpg"
+    ]
+    
+    var isBlendMode = false
+    var backgroundImageName: String? = nil
+    
+    for imageName in possibleImageNames {
+      if UIImage(named: imageName) != nil {
+        isBlendMode = true
+        backgroundImageName = imageName
+        break
+      }
+    }
+    
+    if isBlendMode, let imageName = backgroundImageName, let image = UIImage(named: imageName) {
+      // Blend mode: Set .9 image as background
       view.backgroundColor = .clear
+      let imageView = UIImageView(image: image)
+      imageView.contentMode = .scaleAspectFill
+      imageView.clipsToBounds = true
+      imageView.frame = getFullScreenFrame() // 使用全屏 frame，向上延伸 1px 以覆盖安全区域
+      imageView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+      view.insertSubview(imageView, at: 0)
+      backgroundImageView = imageView // 保存引用，用于在 viewDidLayoutSubviews 中更新 frame
+      print("[SplashScreen2ViewController] Blend mode: Set .9 image background: \(imageName)")
+    } else {
+      // WebView mode: Only set background color, no background image
+      // Get backgroundColor from UserDefaults (set by AppDelegate)
+      let backgroundColorHex = userDefaults.string(forKey: "SplashScreenBackgroundColor") ?? "#ffffff"
+      
+      // Convert hexadecimal color to UIColor
+      let hexColor = backgroundColorHex.uppercased().replacingOccurrences(of: "#", with: "")
+      if hexColor.count == 6 {
+        let r = CGFloat(Int(hexColor.prefix(2), radix: 16) ?? 0) / 255.0
+        let g = CGFloat(Int(String(hexColor.dropFirst(2).prefix(2)), radix: 16) ?? 0) / 255.0
+        let b = CGFloat(Int(hexColor.suffix(2), radix: 16) ?? 0) / 255.0
+        view.backgroundColor = UIColor(red: r, green: g, blue: b, alpha: 1.0)
+        print("[SplashScreen2ViewController] WebView mode: Set background color from config: \(backgroundColorHex)")
+      } else {
+        // Fallback to white if color format is invalid
+        view.backgroundColor = .white
+        print("[SplashScreen2ViewController] WebView mode: Invalid color format, using white")
+      }
     }
     
     // Ensure full screen display
@@ -115,6 +174,14 @@ public class SplashScreen2ViewController: UIViewController {
       view.frame = window.bounds
     } else {
       view.frame = UIScreen.main.bounds
+    }
+    
+    // Update background imageView frame to ensure it covers full screen (including safe area)
+    // This fixes the white line issue at the top in blend mode
+    // 使用全屏 frame，向上延伸 1px 以覆盖安全区域（与 SplashScreen.storyboard 保持一致）
+    if let backgroundImageView = backgroundImageView {
+      backgroundImageView.frame = getFullScreenFrame()
+      print("[SplashScreen2ViewController] viewDidLayoutSubviews - backgroundImageView.frame: \(backgroundImageView.frame)")
     }
     
     // Ensure webView is also full screen

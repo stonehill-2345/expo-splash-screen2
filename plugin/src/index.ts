@@ -1045,7 +1045,7 @@ function generateCustomSplashActivity(
 }
 
 /**
- * Generate SplashScreen2Activity.kt file for Blend mode (WebView container background uses .9 image)
+ * Generate SplashScreen2Activity.kt file for Blend mode
  */
 function generateCustomSplashActivityForBlendMode(
   packageName: string,
@@ -1065,31 +1065,12 @@ function generateCustomSplashActivityForBlendMode(
 
   const activityPath = path.join(javaDir, `SplashScreen2Activity.kt`);
 
-  // Use template and modify WebView container background to use .9 image
-  let activityContent = replaceTemplatePlaceholders(ANDROID_TEMPLATES.customSplashActivity, {
+  // Use template to generate activity content
+  const activityContent = replaceTemplatePlaceholders(ANDROID_TEMPLATES.customSplashActivity, {
     packageName,
     activityName: CUSTOM_SPLASH_ACTIVITY_NAME,
     backgroundColor: '#ffffff', // Not used in blend mode, but required by template
   });
-
-  // Replace WebView container background setting: set .9 image as background
-  // Find the webViewContainer creation code and add background image setting
-  // Match up to fitsSystemWindows = false, then insert code before the closing brace of .apply {}
-  const containerBackgroundPattern = /(webViewContainer = object : ViewGroup\(this\) \{[\s\S]*?fitsSystemWindows = false\s*)(\})/;
-  const backgroundImageCode = `$1
-        // Set background to .9 patch image for blend mode, ensure consistency with system splash screen
-        try {
-          val drawable = resources.getDrawable(
-            resources.getIdentifier("${imageResourceName}", "drawable", packageName),
-            null
-          )
-          this.background = drawable
-        } catch (e: Exception) {
-          Log.e("${CUSTOM_SPLASH_ACTIVITY_NAME}", "Error setting background drawable", e)
-        }
-      $2`;
-  
-  activityContent = activityContent.replace(containerBackgroundPattern, backgroundImageCode);
 
   try {
     fs.writeFileSync(activityPath, activityContent);
@@ -1765,16 +1746,7 @@ function modifyMainActivity(content: string, packageName: string, backgroundColo
   const hasWebViewCode = content.includes('setupWebViewContainer') || content.includes('webViewContainer');
   const hasCompanionObject = content.includes('companion object') && content.includes('actionStart');
 
-  // Add necessary imports
-  const importsToAdd = `
-import android.os.Build
-import android.os.Handler
-import android.os.Looper
-import android.view.View
-import android.view.ViewGroup
-import android.webkit.WebView
-import android.webkit.WebViewClient
-import androidx.core.view.WindowCompat`;
+ 
   
   // Check if these imports are already included (check all imports that need to be added)
   let hasImports = content.includes('import android.os.Build') &&
@@ -2005,35 +1977,11 @@ import androidx.core.view.WindowCompat`;
 }
 
 /**
- * Modify MainActivity.kt for Blend mode (WebView container background uses .9 image)
+ * Modify MainActivity.kt for Blend mode
  */
 function modifyMainActivityForBlendMode(content: string, packageName: string, imageResourceName: string): string {
-  // Use modifyMainActivity as base, then modify WebView container background
-  const baseContent = modifyMainActivity(content, packageName, '#ffffff'); // backgroundColor not used in blend mode
-  
-  // Modify WebView container background to use .9 image
-  // Find the webViewContainer creation code in createWebViewContainer function
-  // Match up to fitsSystemWindows = false, then insert code before the closing brace of .apply {}
-  const containerPattern = /(webViewContainer = object : ViewGroup\(this\) \{[\s\S]*?fitsSystemWindows = false\s*)(\})/;
-  
-  if (containerPattern.test(baseContent)) {
-    const backgroundImageCode = `$1
-        // Set background to .9 patch image for blend mode, ensure consistency with system splash screen
-        try {
-          val drawable = resources.getDrawable(
-            resources.getIdentifier("${imageResourceName}", "drawable", packageName),
-            null
-          )
-          this.background = drawable
-        } catch (e: Exception) {
-          android.util.Log.e("MainActivity", "Error setting background drawable", e)
-        }
-      $2`;
-    
-    return baseContent.replace(containerPattern, backgroundImageCode);
-  }
-  
-  return baseContent;
+  // Use modifyMainActivity as base
+  return modifyMainActivity(content, packageName, '#ffffff'); // backgroundColor not used in blend mode
 }
 
 /**
@@ -2104,9 +2052,9 @@ function modifyAndroidManifestForBlendMode(
 
   const mainActivity = mainApplication.activity[mainActivityIndex];
   
-  // Set MainActivity's theme to @style/AppTheme (for blend mode, use same theme as splash screen)
+  // Set MainActivity's theme to @style/Theme.App.SplashScreen (for blend mode, use same theme as splash screen)
   if (mainActivity && mainActivity.$) {
-    mainActivity.$['android:theme'] = '@style/AppTheme';
+    mainActivity.$['android:theme'] = '@style/Theme.App.SplashScreen';
   }
 
   const customSplashActivityIndex = mainApplication.activity.findIndex((activity: any) => {
@@ -4280,8 +4228,15 @@ function modifyAppDelegateForImageMode(
       // ImageView 不需要交互
       imageView.isUserInteractionEnabled = false
     } else {
-      // ResponsiveImage 模式：全屏背景图
-      imageView = UIImageView(frame: window.bounds)
+      // ResponsiveImage 模式：全屏背景图（向上延伸 1px，与 storyboard 保持一致）
+      // 向上延伸 1px 以覆盖安全区域，避免顶部出现 1px 白线
+      let fullScreenFrame = CGRect(
+        x: window.bounds.origin.x,
+        y: window.bounds.origin.y - 1,
+        width: window.bounds.width,
+        height: window.bounds.height + 1
+      )
+      imageView = UIImageView(frame: fullScreenFrame)
       imageView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
       imageView.contentMode = .scaleAspectFill
       imageView.clipsToBounds = true
@@ -4574,95 +4529,16 @@ function modifyAppDelegateForImageMode(
  */
 function modifyAppDelegateForBlendMode(content: string, imageFileName: string, backgroundColor: string): string {
   // Use modifyAppDelegate as base
-  let modifiedContent = modifyAppDelegate(content);
-  
-  // Modify SplashScreen2ViewController's view background to use .9 image
-  // Since SplashScreen2ViewController is in the pod, we need to add code in AppDelegate
-  // to set the background image after the splash screen is shown
-  
-  // First, add helper function to find SplashScreen2ViewController
-  const classMatch = modifiedContent.match(/(public\s+)?class\s+AppDelegate[^{]*\{/);
-  if (classMatch) {
-    const classIndex = modifiedContent.indexOf(classMatch[0]) + classMatch[0].length;
-    const afterClass = modifiedContent.substring(classIndex);
-    const firstMethodMatch = afterClass.match(/(var|let|func|override|public|private|internal)/);
-    
-    if (firstMethodMatch) {
-      const firstMethodIndex = classIndex + firstMethodMatch.index!;
-      const helperFunctionCode = `
-  
-  // Helper function to find SplashScreen2ViewController in view hierarchy
-  private func findSplashViewController(in viewController: UIViewController) -> SplashScreen2ViewController? {
-    // Check if this is the SplashScreen2ViewController
-    if let splashVC = viewController as? SplashScreen2ViewController {
-      return splashVC
-    }
-    
-    // Check child view controllers
-    for childVC in viewController.children {
-      if let splashVC = findSplashViewController(in: childVC) {
-        return splashVC
-      }
-    }
-    
-    // Check presented view controller
-    if let presentedVC = viewController.presentedViewController {
-      if let splashVC = findSplashViewController(in: presentedVC) {
-        return splashVC
-      }
-    }
-    
-    return nil
-  }
-`;
-      
-      modifiedContent = modifiedContent.substring(0, firstMethodIndex) + helperFunctionCode + modifiedContent.substring(firstMethodIndex);
-    }
-  }
-  
-  // Look for SplashScreen2Service.shared.showSplashScreenFor call
-  // Add code to set background image after showing splash screen
-  const splashServicePattern = /(SplashScreen2Service\.shared\.showSplashScreenFor\([^)]+\))/;
-  
-  if (splashServicePattern.test(modifiedContent)) {
-    // Add code to set background image after showing splash screen
-    // Use DispatchQueue to ensure view is ready
-    const backgroundImageCode = `
-    // Set .9 image as background for blend mode
-    let workItem = DispatchWorkItem { [weak self, weak splashViewController] in
-      guard let self = self, let parentVC = splashViewController else { return }
-      // Get splash view controller from the view hierarchy
-      // Since we just called showSplashScreenFor, the splash screen should be available as a child
-      if let splashVC = self.findSplashViewController(in: parentVC) {
-        // Remove existing background color/image
-        splashVC.view.backgroundColor = .clear
-        
-        // Add .9 image as background
-        if let image = UIImage(named: "${imageFileName}") {
-          let imageView = UIImageView(image: image)
-          imageView.contentMode = .scaleAspectFill
-          imageView.clipsToBounds = true
-          imageView.frame = splashVC.view.bounds
-          imageView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-          splashVC.view.insertSubview(imageView, at: 0)
-          print("[AppDelegate] Set .9 image background for blend mode: ${imageFileName}")
-        } else {
-          print("[AppDelegate] Failed to load .9 image for blend mode: ${imageFileName}")
-        }
-      }
-    }
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: workItem)`;
-    
-    modifiedContent = modifiedContent.replace(splashServicePattern, `$1${backgroundImageCode}`);
-  }
-  
-  return modifiedContent;
+  // Note: Background image setting is now handled in SplashScreen2ViewController.viewDidLoad()
+  // SplashScreen2ViewController will automatically detect blend mode by checking for splash_background_image file
+  // No need to set background image in AppDelegate to avoid duplication
+  return modifyAppDelegate(content, backgroundColor);
 }
 
 /**
  * 修改 AppDelegate.swift，添加自定义开屏逻辑
  */
-function modifyAppDelegate(content: string): string {
+function modifyAppDelegate(content: string, backgroundColor: string = '#ffffff'): string {
   // 检查是否已经包含自定义开屏代码
   // 检查是否包含 SplashScreen2Service.shared.showSplashScreenFor，如果包含则说明已经修改过
   if (content.includes('SplashScreen2Service.shared.showSplashScreenFor') || 
@@ -4909,6 +4785,10 @@ function modifyAppDelegate(content: string): string {
     
     // 设置 AppDelegate 的引用，以便 SplashScreen2ViewController 可以调用 startReactNativeIfNeeded
     SplashScreen2ViewController.appDelegate = self
+    
+    // 保存 backgroundColor 到 UserDefaults，供 SplashScreen2ViewController 使用
+    UserDefaults.standard.set("${backgroundColor}", forKey: "SplashScreenBackgroundColor")
+    UserDefaults.standard.synchronize()
     
     // 立即创建并显示自定义开屏（在应用启动的最早时刻）
     // 创建一个临时的 rootViewController 来承载开屏视图
@@ -5487,10 +5367,11 @@ function applySplashScreenStoryboard(
       ensureUniquePush(mainView.subviews[0].imageView, imageView);
       
       // 清空现有约束并添加全屏约束
+      // 注意：top 约束使用 constant="-1" 确保背景图片完全覆盖，包括安全区域，避免顶部出现 1px 白线
       mainView.constraints[0].constraint = [];
       ensureUniquePush(
         mainView.constraints[0].constraint,
-        createConstraint([IMAGE_ID, 'top'], [CONTAINER_ID, 'top'])
+        createConstraint([IMAGE_ID, 'top'], [CONTAINER_ID, 'top'], '-1')
       );
       ensureUniquePush(
         mainView.constraints[0].constraint,
@@ -7185,7 +7066,10 @@ end`;
   // 2. 修改 AppDelegate.swift
   config = withAppDelegate(config, (config) => {
     if (config.modResults.language === 'swift') {
-      config.modResults.contents = modifyAppDelegate(config.modResults.contents);
+      const backgroundColor = pluginConfig?.backgroundColor || 
+                            config.splash?.backgroundColor || 
+                            '#ffffff';
+      config.modResults.contents = modifyAppDelegate(config.modResults.contents, backgroundColor);
     }
     return config;
   });
