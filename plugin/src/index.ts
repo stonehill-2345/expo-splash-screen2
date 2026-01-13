@@ -1822,15 +1822,68 @@ function modifyMainActivity(content: string, packageName: string, backgroundColo
       }
     }
     
-    // Check if onCreate contains setupWebViewContainer call, remove if exists
+    // Check if onCreate contains the complete code block, remove if exists
     // onCreateContent contains complete content from method signature to closing brace
     const onCreateContent = modifiedContent.substring(onCreateIndex, onCreateEndIndex);
     let cleanedOnCreateContent = onCreateContent;
     
-    if (onCreateContent.includes('setupWebViewContainer')) {
-      // Remove setupWebViewContainer call (including Handler code block)
-      const setupCallRegex = /(\s*\/\/\s*[^\n]*\n)?\s*Handler\([^}]*setupWebViewContainer\(\)[^}]*\}/g;
-      cleanedOnCreateContent = cleanedOnCreateContent.replace(setupCallRegex, '');
+    // Check if the complete code block exists (WindowCompat + setupWebViewContainer + Handler)
+    const hasWindowCompat = onCreateContent.includes('WindowCompat.setDecorFitsSystemWindows');
+    const hasSetupWebViewContainer = onCreateContent.includes('setupWebViewContainer');
+    const hasHandlerPost = onCreateContent.includes('Handler(Looper.getMainLooper()).post');
+    const codeBlockExists = hasWindowCompat && hasSetupWebViewContainer && hasHandlerPost;
+    
+    if (codeBlockExists) {
+      // Remove the complete code block by finding the start and end positions
+      // Start: Find the line with "Let content extend below status bar" or "WindowCompat.setDecorFitsSystemWindows"
+      // End: Find the closing brace of the Handler block that contains setupWebViewContainer
+      const lines = onCreateContent.split('\n');
+      const filteredLines: string[] = [];
+      let inCodeBlock = false;
+      let handlerBraceCount = 0;
+      let foundHandlerStart = false;
+      
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        
+        // Check if this line starts the code block
+        if (!inCodeBlock && (line.includes('WindowCompat.setDecorFitsSystemWindows') || 
+            line.includes('Let content extend below status bar'))) {
+          inCodeBlock = true;
+          // Skip this line and continue to process the block
+          continue;
+        }
+        
+        if (inCodeBlock) {
+          // Check if we've reached the Handler block
+          if (line.includes('Handler(Looper.getMainLooper()).post')) {
+            foundHandlerStart = true;
+          }
+          
+          // Count braces to find the end of Handler block
+          if (foundHandlerStart) {
+            handlerBraceCount += (line.match(/\{/g) || []).length;
+            handlerBraceCount -= (line.match(/\}/g) || []).length;
+            
+            // If we've closed all braces (Handler block is complete), end the code block
+            if (handlerBraceCount <= 0) {
+              inCodeBlock = false;
+              handlerBraceCount = 0;
+              foundHandlerStart = false;
+              // Skip this line (the closing brace of Handler)
+              continue;
+            }
+          }
+          
+          // Skip this line (it's part of the code block)
+          continue;
+        }
+        
+        // Keep lines that are not part of the code block
+        filteredLines.push(line);
+      }
+      
+      cleanedOnCreateContent = filteredLines.join('\n');
     }
     
     // Remove setTheme(R.style.AppTheme) call and its comments
@@ -1870,7 +1923,17 @@ function modifyMainActivity(content: string, packageName: string, backgroundColo
     
     const onCreateContent = modifiedContent.substring(onCreateIndex, onCreateEndIndex);
     
-    if (!onCreateContent.includes('setupWebViewContainer')) {
+    // Check if the code block already exists by checking for key markers from the template
+    // The template includes: WindowCompat.setDecorFitsSystemWindows, setupWebViewContainer, and Handler(Looper.getMainLooper()).post
+    const hasWindowCompat = onCreateContent.includes('WindowCompat.setDecorFitsSystemWindows');
+    const hasSetupWebViewContainer = onCreateContent.includes('setupWebViewContainer');
+    const hasHandlerPost = onCreateContent.includes('Handler(Looper.getMainLooper()).post');
+    
+    // Only insert if the complete code block doesn't exist
+    // All three markers should be present together to indicate the code block is already inserted
+    const codeBlockExists = hasWindowCompat && hasSetupWebViewContainer && hasHandlerPost;
+    
+    if (!codeBlockExists) {
       // Add setupWebViewContainer call after super.onCreate
       const superOnCreateIndex = onCreateContent.indexOf('super.onCreate');
       if (superOnCreateIndex !== -1) {
@@ -1981,7 +2044,37 @@ function modifyMainActivity(content: string, packageName: string, backgroundColo
  */
 function modifyMainActivityForBlendMode(content: string, packageName: string, imageResourceName: string): string {
   // Use modifyMainActivity as base
-  return modifyMainActivity(content, packageName, '#ffffff'); // backgroundColor not used in blend mode
+  let modifiedContent = modifyMainActivity(content, packageName, '#ffffff'); // backgroundColor not used in blend mode
+  
+  // Add .9 patch image as container background in blend mode
+  // Check if background code already exists to avoid duplicate
+  if (modifiedContent.includes('Set .9 patch image as container background')) {
+    return modifiedContent;
+  }
+  
+  // Find the location after "fitsSystemWindows = false" in createWebViewContainer
+  // Match: comment + fitsSystemWindows = false + closing brace of apply block
+  const fitsSystemWindowsPattern = /(\s*\/\/\s*Ensure container is not affected by system window insets[^\n]*\n\s*fitsSystemWindows\s*=\s*false\s*)(\n\s*\})/;
+  const backgroundCode = `
+        // Set .9 patch image as container background
+        try {
+          val drawable = resources.getDrawable(
+            resources.getIdentifier("${imageResourceName}", "drawable", packageName),
+            null
+          )
+          this.background = drawable
+        } catch (e: Exception) {
+          android.util.Log.e("MainActivity", "Error setting background drawable", e)
+        }`;
+  
+  if (fitsSystemWindowsPattern.test(modifiedContent)) {
+    modifiedContent = modifiedContent.replace(
+      fitsSystemWindowsPattern,
+      `$1${backgroundCode}$2`
+    );
+  }
+  
+  return modifiedContent;
 }
 
 /**
