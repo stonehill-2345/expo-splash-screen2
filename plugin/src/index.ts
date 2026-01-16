@@ -1154,14 +1154,7 @@ function modifyMainActivityForImageMode(
     return content;
   }
 
-  // Add necessary imports
-  const importsToAdd = `
-import android.os.Handler
-import android.os.Looper
-import android.view.View
-import android.view.ViewGroup
-import android.widget.ImageView
-import android.graphics.drawable.Drawable`;
+  
   
   // Check if these imports are already included (check all imports that need to be added)
   let hasImports = content.includes('import android.os.Handler') &&
@@ -1284,6 +1277,18 @@ import android.graphics.drawable.Drawable`;
   fun preventAutoHide() {
     preventAutoHide = true
     android.util.Log.d("MainActivity", "preventAutoHide called, preventAutoHide: $preventAutoHide")
+    // Show splash image view when preventAutoHide is called
+    Handler(Looper.getMainLooper()).post {
+      setupSplashImageView()
+    }
+  }
+  
+  override fun onContentChanged() {
+    super.onContentChanged()
+    // Show splash image view when content changed
+    Handler(Looper.getMainLooper()).post {
+      setupSplashImageView()
+    }
   }
   
   fun hideSplashImageViewContainer(force: Boolean = false) {
@@ -1307,7 +1312,7 @@ import android.graphics.drawable.Drawable`;
     }
   }`;
 
-  // Add setupSplashImageView call in onCreate
+  // Remove "Set the theme to AppTheme" comments and any setTheme calls from onCreate
   const onCreateMatch = modifiedContent.match(/override\s+fun\s+onCreate\s*\([^)]*\)\s*\{/);
   if (onCreateMatch) {
     const onCreateIndex = modifiedContent.indexOf(onCreateMatch[0]);
@@ -1331,24 +1336,24 @@ import android.graphics.drawable.Drawable`;
     }
     
     const onCreateContent = modifiedContent.substring(onCreateIndex, onCreateEndIndex);
+    let cleanedOnCreateContent = onCreateContent;
     
-    if (!onCreateContent.includes('setupSplashImageView')) {
-      // Add setupSplashImageView call after super.onCreate
-      const superOnCreateIndex = onCreateContent.indexOf('super.onCreate');
-      if (superOnCreateIndex !== -1) {
-        const superOnCreateEndIndex = onCreateContent.indexOf('\n', superOnCreateIndex);
-        if (superOnCreateEndIndex !== -1) {
-          const setupCall = `
-    // Immediately show background image ImageView container in onCreate
-    Handler(Looper.getMainLooper()).post {
-      setupSplashImageView()
-    }`;
-          
-          modifiedContent = modifiedContent.substring(0, onCreateIndex + superOnCreateEndIndex + 1) +
-                           setupCall + '\n' +
-                           modifiedContent.substring(onCreateIndex + superOnCreateEndIndex + 1);
-        }
-      }
+    // Remove "Set the theme to AppTheme" comments
+    const themeCommentRegex = /(\s*\/\/\s*Set the theme to AppTheme[^\n]*\n)+(\s*\/\/\s*[^\n]*\n)*(\s*\/\/\s*This is required for expo-splash-screen[^\n]*\n)?/g;
+    cleanedOnCreateContent = cleanedOnCreateContent.replace(themeCommentRegex, '');
+    
+    // Remove setTheme(R.style.AppTheme) call and its comments
+    const setThemeRegex = /(\s*\/\/\s*[^\n]*\n)*\s*setTheme\s*\(\s*R\.style\.AppTheme\s*\)\s*;?\s*\n?/g;
+    cleanedOnCreateContent = cleanedOnCreateContent.replace(setThemeRegex, '');
+    
+    // Remove setupSplashImageView call if exists
+    const setupSplashRegex = /(\s*\/\/\s*[^\n]*\n)*\s*Handler\s*\(\s*Looper\.getMainLooper\(\)\s*\)\.post\s*\{[\s\S]*?setupSplashImageView\s*\(\)[\s\S]*?\}\s*/g;
+    cleanedOnCreateContent = cleanedOnCreateContent.replace(setupSplashRegex, '');
+    
+    if (cleanedOnCreateContent !== onCreateContent) {
+      modifiedContent = modifiedContent.substring(0, onCreateIndex) + 
+                       cleanedOnCreateContent + 
+                       modifiedContent.substring(onCreateEndIndex);
     }
   }
 
@@ -2107,6 +2112,48 @@ function generatePrivacyPolicyActivity(
   } catch (error) {
     console.error(`[expo-splash-screen2] Failed to generate SplashScreen2PrivacyPolicyActivity.kt:`, error);
   }
+}
+
+/**
+ * Modify AndroidManifest.xml for responsiveImage mode (MainActivity uses @style/AppTheme)
+ */
+function modifyAndroidManifestForImageMode(
+  manifest: AndroidManifest,
+  packageName: string
+): AndroidManifest {
+  const application = manifest.manifest.application?.[0];
+  const mainApplication =
+    application && typeof application === 'object' && 'activity' in application
+      ? application
+      : null;
+
+  if (!mainApplication || !mainApplication.activity) {
+    return manifest;
+  }
+
+  const mainActivityIndex = mainApplication.activity.findIndex((activity: any) => {
+    const name = activity.$?.['android:name'];
+    return (
+      name === '.MainActivity' ||
+      name === 'MainActivity' ||
+      name?.endsWith('.MainActivity') ||
+      name === `${packageName}.MainActivity`
+    );
+  });
+
+  if (mainActivityIndex === -1) {
+    console.warn('[expo-splash-screen2] MainActivity not found in AndroidManifest');
+    return manifest;
+  }
+
+  const mainActivity = mainApplication.activity[mainActivityIndex];
+  
+  // Set MainActivity's theme to @style/AppTheme for responsiveImage mode
+  if (mainActivity && mainActivity.$) {
+    mainActivity.$['android:theme'] = '@style/AppTheme';
+  }
+
+  return manifest;
 }
 
 /**
@@ -6204,6 +6251,12 @@ function setupImageMode(config: any, pluginConfig: SplashHtmlConfig): any {
       stylesJSON.resources.style
     );
 
+    return config;
+  });
+
+  // 修改 AndroidManifest.xml，设置 MainActivity 主题为 @style/AppTheme
+  config = withAndroidManifest(config, (config) => {
+    config.modResults = modifyAndroidManifestForImageMode(config.modResults, packageName);
     return config;
   });
 
