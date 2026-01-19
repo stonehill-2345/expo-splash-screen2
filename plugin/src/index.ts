@@ -554,38 +554,6 @@ function createSplashScreenLogoForNormalMode(
   }
 }
 
-/**
- * Create background drawable XML (includes centered icon)
- */
-function createBackgroundDrawable(
-  androidResPath: string,
-  backgroundColor: string
-): void {
-  const drawableDir = path.join(androidResPath, 'res', 'drawable');
-  if (!fs.existsSync(drawableDir)) {
-    fs.mkdirSync(drawableDir, { recursive: true });
-  }
-
-  const xmlPath = path.join(drawableDir, 'splash_html_background.xml');
-  const xmlContent = `<?xml version="1.0" encoding="utf-8"?>
-<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item>
-        <color android:color="${backgroundColor}" />
-    </item>
-    <item>
-        <bitmap
-            android:gravity="center"
-            android:src="@drawable/splash_icon" />
-    </item>
-</layer-list>
-`;
-
-    try {
-      fs.writeFileSync(xmlPath, xmlContent);
-    } catch (error) {
-      console.error(`[expo-splash-screen2] Error creating background drawable: ${error}`);
-    }
-}
 
 /**
  * Remove hash from filename (e.g., top.69f4b826e4179e7f210f17d37f6d128d.png -> top.png)
@@ -1154,14 +1122,7 @@ function modifyMainActivityForImageMode(
     return content;
   }
 
-  // Add necessary imports
-  const importsToAdd = `
-import android.os.Handler
-import android.os.Looper
-import android.view.View
-import android.view.ViewGroup
-import android.widget.ImageView
-import android.graphics.drawable.Drawable`;
+  
   
   // Check if these imports are already included (check all imports that need to be added)
   let hasImports = content.includes('import android.os.Handler') &&
@@ -1243,7 +1204,7 @@ import android.graphics.drawable.Drawable`;
           android.util.Log.e("MainActivity", "Error setting background drawable", e)
         }
       }
-      
+
       // Create ImageView, display .9 patch background
       // Use FIT_XY scaleType to ensure .9 patch correctly stretches and fills, completely consistent with system splash screen
       val imageView = ImageView(this).apply {
@@ -1284,6 +1245,18 @@ import android.graphics.drawable.Drawable`;
   fun preventAutoHide() {
     preventAutoHide = true
     android.util.Log.d("MainActivity", "preventAutoHide called, preventAutoHide: $preventAutoHide")
+    // Show splash image view when preventAutoHide is called
+    Handler(Looper.getMainLooper()).post {
+      setupSplashImageView()
+    }
+  }
+  
+  override fun onContentChanged() {
+    super.onContentChanged()
+    // Show splash image view when content changed
+    Handler(Looper.getMainLooper()).post {
+      setupSplashImageView()
+    }
   }
   
   fun hideSplashImageViewContainer(force: Boolean = false) {
@@ -1307,7 +1280,7 @@ import android.graphics.drawable.Drawable`;
     }
   }`;
 
-  // Add setupSplashImageView call in onCreate
+  // Remove "Set the theme to AppTheme" comments and any setTheme calls from onCreate
   const onCreateMatch = modifiedContent.match(/override\s+fun\s+onCreate\s*\([^)]*\)\s*\{/);
   if (onCreateMatch) {
     const onCreateIndex = modifiedContent.indexOf(onCreateMatch[0]);
@@ -1331,24 +1304,24 @@ import android.graphics.drawable.Drawable`;
     }
     
     const onCreateContent = modifiedContent.substring(onCreateIndex, onCreateEndIndex);
+    let cleanedOnCreateContent = onCreateContent;
     
-    if (!onCreateContent.includes('setupSplashImageView')) {
-      // Add setupSplashImageView call after super.onCreate
-      const superOnCreateIndex = onCreateContent.indexOf('super.onCreate');
-      if (superOnCreateIndex !== -1) {
-        const superOnCreateEndIndex = onCreateContent.indexOf('\n', superOnCreateIndex);
-        if (superOnCreateEndIndex !== -1) {
-          const setupCall = `
-    // Immediately show background image ImageView container in onCreate
-    Handler(Looper.getMainLooper()).post {
-      setupSplashImageView()
-    }`;
-          
-          modifiedContent = modifiedContent.substring(0, onCreateIndex + superOnCreateEndIndex + 1) +
-                           setupCall + '\n' +
-                           modifiedContent.substring(onCreateIndex + superOnCreateEndIndex + 1);
-        }
-      }
+    // Remove "Set the theme to AppTheme" comments
+    const themeCommentRegex = /(\s*\/\/\s*Set the theme to AppTheme[^\n]*\n)+(\s*\/\/\s*[^\n]*\n)*(\s*\/\/\s*This is required for expo-splash-screen[^\n]*\n)?/g;
+    cleanedOnCreateContent = cleanedOnCreateContent.replace(themeCommentRegex, '');
+    
+    // Remove setTheme(R.style.AppTheme) call and its comments
+    const setThemeRegex = /(\s*\/\/\s*[^\n]*\n)*\s*setTheme\s*\(\s*R\.style\.AppTheme\s*\)\s*;?\s*\n?/g;
+    cleanedOnCreateContent = cleanedOnCreateContent.replace(setThemeRegex, '');
+    
+    // Remove setupSplashImageView call if exists
+    const setupSplashRegex = /(\s*\/\/\s*[^\n]*\n)*\s*Handler\s*\(\s*Looper\.getMainLooper\(\)\s*\)\.post\s*\{[\s\S]*?setupSplashImageView\s*\(\)[\s\S]*?\}\s*/g;
+    cleanedOnCreateContent = cleanedOnCreateContent.replace(setupSplashRegex, '');
+    
+    if (cleanedOnCreateContent !== onCreateContent) {
+      modifiedContent = modifiedContent.substring(0, onCreateIndex) + 
+                       cleanedOnCreateContent + 
+                       modifiedContent.substring(onCreateEndIndex);
     }
   }
 
@@ -1996,28 +1969,73 @@ function modifyMainActivity(content: string, packageName: string, backgroundColo
 
   // Only add new code if WebView code doesn't exist
   if (!hasWebViewCode || !hasCompanionObject) {
-  const classIndex = modifiedContent.indexOf(classMatch[0]) + classMatch[0].length;
-  const firstMethodMatch = modifiedContent.substring(classIndex).match(/\s+(override\s+)?fun\s+/);
+    const classIndex = modifiedContent.indexOf(classMatch[0]) + classMatch[0].length;
+    const firstMethodMatch = modifiedContent.substring(classIndex).match(/\s+(override\s+)?fun\s+/);
 
-  if (firstMethodMatch) {
-    const insertIndex = classIndex + firstMethodMatch.index!;
-      modifiedContent = (
-      modifiedContent.substring(0, insertIndex) +
-      companionObjectCode +
-      webViewCode +
-      '\n' +
-      modifiedContent.substring(insertIndex)
-    );
-  } else {
-    const lastBraceIndex = modifiedContent.lastIndexOf('}');
-      modifiedContent = (
-      modifiedContent.substring(0, lastBraceIndex) +
-      companionObjectCode +
-      webViewCode +
-      '\n' +
-      modifiedContent.substring(lastBraceIndex)
-    );
-  }
+    // Insert webViewCode (properties and methods) at the beginning of the class (before first method)
+    if (!hasWebViewCode) {
+      if (firstMethodMatch) {
+        const insertIndex = classIndex + firstMethodMatch.index!;
+        modifiedContent = (
+          modifiedContent.substring(0, insertIndex) +
+          webViewCode +
+          '\n' +
+          modifiedContent.substring(insertIndex)
+        );
+      } else {
+        const lastBraceIndex = modifiedContent.lastIndexOf('}');
+        modifiedContent = (
+          modifiedContent.substring(0, lastBraceIndex) +
+          webViewCode +
+          '\n' +
+          modifiedContent.substring(lastBraceIndex)
+        );
+      }
+    }
+
+    // Insert companion object at the end of the class (before the closing brace)
+    if (!hasCompanionObject) {
+      // Find the last closing brace of the class (before any nested classes or companion objects)
+      // Match the closing brace that matches the class opening brace
+      let braceCount = 0;
+      let classStartIndex = modifiedContent.indexOf(classMatch[0]);
+      let foundClassStart = false;
+      let classEndIndex = -1;
+      
+      for (let i = classStartIndex; i < modifiedContent.length; i++) {
+        if (modifiedContent[i] === '{') {
+          braceCount++;
+          foundClassStart = true;
+        } else if (modifiedContent[i] === '}') {
+          braceCount--;
+          if (foundClassStart && braceCount === 0) {
+            classEndIndex = i;
+            break;
+          }
+        }
+      }
+      
+      if (classEndIndex !== -1) {
+        // Insert companion object before the closing brace
+        modifiedContent = (
+          modifiedContent.substring(0, classEndIndex) +
+          '\n' +
+          companionObjectCode +
+          '\n' +
+          modifiedContent.substring(classEndIndex)
+        );
+      } else {
+        // Fallback: use last brace
+        const lastBraceIndex = modifiedContent.lastIndexOf('}');
+        modifiedContent = (
+          modifiedContent.substring(0, lastBraceIndex) +
+          '\n' +
+          companionObjectCode +
+          '\n' +
+          modifiedContent.substring(lastBraceIndex)
+        );
+      }
+    }
   }
 
   // Delete background color setting code in createWebViewContainer (if exists)
@@ -2041,37 +2059,530 @@ function modifyMainActivity(content: string, packageName: string, backgroundColo
 
 /**
  * Modify MainActivity.kt for Blend mode
+ * Blend mode: ImageView container (.9图背景) + WebView container (透明背景，在ImageView之上)
  */
 function modifyMainActivityForBlendMode(content: string, packageName: string, imageResourceName: string): string {
-  // Use modifyMainActivity as base
+  // Check if blend mode code already exists
+  if (content.includes('splashImageViewContainer') && content.includes('setupSplashImageView') && 
+      content.includes('onContentChanged') && content.includes('setupWebViewContainer')) {
+    return content;
+  }
+
+  // Use modifyMainActivity as base (this adds WebView container logic)
   let modifiedContent = modifyMainActivity(content, packageName, '#ffffff'); // backgroundColor not used in blend mode
   
-  // Add .9 patch image as container background in blend mode
-  // Check if background code already exists to avoid duplicate
-  if (modifiedContent.includes('Set .9 patch image as container background')) {
-    return modifiedContent;
+  // Remove .9 patch image as container background from WebView container (keep it transparent)
+  // Find and remove the background setting code if it exists
+  const fitsSystemWindowsPattern = /(\s*\/\/\s*Ensure container is not affected by system window insets[^\n]*\n\s*fitsSystemWindows\s*=\s*false\s*)(\s*\/\/\s*Set \.9 patch image as container background[\s\S]*?android\.util\.Log\.e\("MainActivity", "Error setting background drawable", e\)[\s\S]*?\}\s*)(\n\s*\})/;
+  if (fitsSystemWindowsPattern.test(modifiedContent)) {
+    modifiedContent = modifiedContent.replace(
+      fitsSystemWindowsPattern,
+      '$1$3'
+    );
   }
   
-  // Find the location after "fitsSystemWindows = false" in createWebViewContainer
-  // Match: comment + fitsSystemWindows = false + closing brace of apply block
-  const fitsSystemWindowsPattern = /(\s*\/\/\s*Ensure container is not affected by system window insets[^\n]*\n\s*fitsSystemWindows\s*=\s*false\s*)(\n\s*\})/;
-  const backgroundCode = `
-        // Set .9 patch image as container background
+  // Remove setupWebViewContainer call from onCreate
+  const onCreateMatch = modifiedContent.match(/override\s+fun\s+onCreate\s*\([^)]*\)\s*\{/);
+  if (onCreateMatch) {
+    const onCreateIndex = modifiedContent.indexOf(onCreateMatch[0]);
+    
+    // Use smarter method to find onCreate method end position (match nested braces)
+    let braceCount = 0;
+    let onCreateEndIndex = onCreateIndex + onCreateMatch[0].length;
+    let foundStart = false;
+    
+    for (let i = onCreateIndex; i < modifiedContent.length; i++) {
+      if (modifiedContent[i] === '{') {
+        braceCount++;
+        foundStart = true;
+      } else if (modifiedContent[i] === '}') {
+        braceCount--;
+        if (foundStart && braceCount === 0) {
+          onCreateEndIndex = i + 1;
+          break;
+        }
+      }
+    }
+    
+    const onCreateContent = modifiedContent.substring(onCreateIndex, onCreateEndIndex);
+    let cleanedOnCreateContent = onCreateContent;
+    
+    // Remove setupWebViewContainer call and related code from onCreate
+    const setupWebViewRegex = /(\s*\/\/\s*[^\n]*\n)*\s*(WindowCompat\.setDecorFitsSystemWindows|setupWebViewContainer|Handler\s*\(\s*Looper\.getMainLooper\(\)\s*\)\.post)[\s\S]*?\}\s*/g;
+    cleanedOnCreateContent = cleanedOnCreateContent.replace(setupWebViewRegex, '');
+    
+    if (cleanedOnCreateContent !== onCreateContent) {
+      modifiedContent = modifiedContent.substring(0, onCreateIndex) + 
+                       cleanedOnCreateContent + 
+                       modifiedContent.substring(onCreateEndIndex);
+    }
+  }
+
+  // Add ImageView container code (same as responsiveImage mode)
+  const classMatch = modifiedContent.match(/class\s+MainActivity\s*[^:]*:/);
+  if (!classMatch) {
+    console.warn('[expo-splash-screen2] MainActivity class not found');
+    return modifiedContent;
+  }
+
+  // Add necessary imports for ImageView container
+  const importsToAdd = [
+    'import android.os.Handler',
+    'import android.os.Looper',
+    'import android.view.View',
+    'import android.view.ViewGroup',
+    'import android.widget.ImageView'
+  ];
+  
+  let hasImports = importsToAdd.every(imp => modifiedContent.includes(imp));
+  
+  if (!hasImports) {
+    const missingImports = importsToAdd.filter(imp => !modifiedContent.includes(imp));
+    if (missingImports.length > 0) {
+      const lastImportIndex = modifiedContent.lastIndexOf('import ');
+      if (lastImportIndex !== -1) {
+        const nextLineIndex = modifiedContent.indexOf('\n', lastImportIndex);
+        if (nextLineIndex !== -1) {
+          const missingImportsText = missingImports.join('\n') + '\n';
+          modifiedContent = modifiedContent.substring(0, nextLineIndex + 1) +
+                           missingImportsText +
+                           modifiedContent.substring(nextLineIndex + 1);
+        }
+      }
+    }
+  }
+
+  // ImageView container code (same as responsiveImage mode)
+  const imageViewCode = `
+  private var splashImageViewContainer: ViewGroup? = null
+  private var preventAutoHideImageView = false
+
+  private fun setupSplashImageView() {
+    try {
+      // If container already exists, return directly
+      if (splashImageViewContainer != null) {
+        android.util.Log.d("MainActivity", "Splash ImageView container already exists")
+        return
+      }
+
+      android.util.Log.d("MainActivity", "Creating splash ImageView container")
+
+      // Create container
+      splashImageViewContainer = object : ViewGroup(this) {
+        override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
+          val childCount = childCount
+          val width = r - l
+          val height = b - t
+          for (i in 0 until childCount) {
+            val child = getChildAt(i)
+            child.layout(0, 0, width, height)
+          }
+        }
+      }.apply {
+        layoutParams = ViewGroup.LayoutParams(
+          ViewGroup.LayoutParams.MATCH_PARENT,
+          ViewGroup.LayoutParams.MATCH_PARENT
+        )
+        // Set background to .9 patch image, ensure consistency with system splash screen
         try {
           val drawable = resources.getDrawable(
             resources.getIdentifier("${imageResourceName}", "drawable", packageName),
             null
           )
-          this.background = drawable
+          background = drawable
         } catch (e: Exception) {
           android.util.Log.e("MainActivity", "Error setting background drawable", e)
-        }`;
+        }
+      }
+
+      // Create ImageView, display .9 patch background
+      // Use FIT_XY scaleType to ensure .9 patch correctly stretches and fills, completely consistent with system splash screen
+      val imageView = ImageView(this).apply {
+        layoutParams = ViewGroup.LayoutParams(
+          ViewGroup.LayoutParams.MATCH_PARENT,
+          ViewGroup.LayoutParams.MATCH_PARENT
+        )
+        // For .9 patch images, use FIT_XY to ensure complete fill, .9 patch stretch areas will work correctly
+        scaleType = ImageView.ScaleType.FIT_XY
+        try {
+          val drawable = resources.getDrawable(
+            resources.getIdentifier("${imageResourceName}", "drawable", packageName),
+            null
+          )
+          setImageDrawable(drawable)
+        } catch (e: Exception) {
+          android.util.Log.e("MainActivity", "Error setting image drawable", e)
+        }
+        visibility = View.VISIBLE
+      }
+
+      splashImageViewContainer?.addView(imageView)
+
+      // Use window.decorView to ensure on top layer (but below WebView container)
+      val decorView = window.decorView as? ViewGroup
+      if (decorView != null) {
+        decorView.addView(splashImageViewContainer)
+        // ImageView container should be below WebView container
+        splashImageViewContainer?.visibility = View.VISIBLE
+        splashImageViewContainer?.elevation = Float.MAX_VALUE - 1 // Below WebView container
+        android.util.Log.d("MainActivity", "Splash ImageView container added to decorView")
+      }
+    } catch (e: Exception) {
+      android.util.Log.e("MainActivity", "Error creating splash ImageView container", e)
+    }
+  }
+
+  fun hideSplashImageViewContainer(force: Boolean = false) {
+    try {
+      // If preventAutoHideImageView is true and not force hide, don't execute hide operation
+      if (preventAutoHideImageView && !force) {
+        android.util.Log.d("MainActivity", "hideSplashImageViewContainer prevented by preventAutoHideImageView flag")
+        return
+      }
+
+      val parent = splashImageViewContainer?.parent as? ViewGroup
+      parent?.removeView(splashImageViewContainer)
+
+      splashImageViewContainer?.visibility = View.GONE
+      splashImageViewContainer?.removeAllViews()
+      splashImageViewContainer = null
+      preventAutoHideImageView = false
+      android.util.Log.d("MainActivity", "Splash ImageView container hidden")
+    } catch (e: Exception) {
+      android.util.Log.e("MainActivity", "Error hiding splash ImageView container", e)
+    }
+  }`;
+
+  // Insert ImageView container code into MainActivity class
+  // Ensure it's inserted at class level, not inside companion object
+  const classIndex = modifiedContent.indexOf(classMatch[0]) + classMatch[0].length;
+  const afterClass = modifiedContent.substring(classIndex);
   
-  if (fitsSystemWindowsPattern.test(modifiedContent)) {
-    modifiedContent = modifiedContent.replace(
-      fitsSystemWindowsPattern,
-      `$1${backgroundCode}$2`
-    );
+  // Check if companion object exists
+  const companionObjectMatch = afterClass.match(/companion\s+object\s*\{/);
+  
+  if (companionObjectMatch) {
+    // If companion object exists, insert before it
+    const companionIndex = classIndex + companionObjectMatch.index!;
+    modifiedContent = modifiedContent.substring(0, companionIndex) +
+                     imageViewCode +
+                     '\n' +
+                     modifiedContent.substring(companionIndex);
+  } else {
+    // If no companion object, find first method or property
+    const firstMethodMatch = afterClass.match(/\s+(override\s+)?fun\s+/);
+    
+    if (firstMethodMatch) {
+      const insertIndex = classIndex + firstMethodMatch.index!;
+      modifiedContent = modifiedContent.substring(0, insertIndex) +
+                       imageViewCode +
+                       '\n' +
+                       modifiedContent.substring(insertIndex);
+    } else {
+      const lastBraceIndex = modifiedContent.lastIndexOf('}');
+      modifiedContent = modifiedContent.substring(0, lastBraceIndex) +
+                       imageViewCode +
+                       '\n' +
+                       modifiedContent.substring(lastBraceIndex);
+    }
+  }
+
+  // Modify preventAutoHide to also show ImageView container
+  // Use precise matching to find the entire method including nested braces
+  const preventAutoHideMethodStart = modifiedContent.indexOf('fun preventAutoHide()');
+  if (preventAutoHideMethodStart !== -1) {
+    // Find the method signature end
+    const methodSignatureEnd = modifiedContent.indexOf('{', preventAutoHideMethodStart);
+    if (methodSignatureEnd !== -1) {
+      // Match nested braces to find the complete method
+      let braceCount = 0;
+      let methodEnd = methodSignatureEnd + 1;
+      let foundStart = false;
+      
+      for (let i = methodSignatureEnd; i < modifiedContent.length; i++) {
+        if (modifiedContent[i] === '{') {
+          braceCount++;
+          foundStart = true;
+        } else if (modifiedContent[i] === '}') {
+          braceCount--;
+          if (foundStart && braceCount === 0) {
+            methodEnd = i + 1;
+            break;
+          }
+        }
+      }
+      
+      const preventAutoHideCode = `
+  fun preventAutoHide() {
+    runOnUiThread {
+      preventAutoHide = true
+      preventAutoHideImageView = true
+      android.util.Log.d("MainActivity", "preventAutoHide called, preventAutoHide: $preventAutoHide, preventAutoHideImageView: $preventAutoHideImageView")
+      // Show ImageView container
+      Handler(Looper.getMainLooper()).post {
+        setupSplashImageView()
+      }
+      // If WebView container doesn't exist, create it
+      if (webViewContainer == null) {
+        android.util.Log.d("MainActivity", "WebView container is null, creating it")
+        setupWebViewContainer()
+      }
+    }
+  }`;
+      modifiedContent = modifiedContent.substring(0, preventAutoHideMethodStart) +
+                       preventAutoHideCode +
+                       modifiedContent.substring(methodEnd);
+    }
+  }
+
+  // Modify hideWebViewContainerInternal to also hide ImageView container
+  // Use more precise matching to find the entire method including nested braces
+  const hideWebViewMethodStart = modifiedContent.indexOf('private fun hideWebViewContainerInternal');
+  if (hideWebViewMethodStart !== -1) {
+    // Find the method signature end
+    const methodSignatureEnd = modifiedContent.indexOf('{', hideWebViewMethodStart);
+    if (methodSignatureEnd !== -1) {
+      // Match nested braces to find the complete method
+      let braceCount = 0;
+      let methodEnd = methodSignatureEnd + 1;
+      let foundStart = false;
+      
+      for (let i = methodSignatureEnd; i < modifiedContent.length; i++) {
+        if (modifiedContent[i] === '{') {
+          braceCount++;
+          foundStart = true;
+        } else if (modifiedContent[i] === '}') {
+          braceCount--;
+          if (foundStart && braceCount === 0) {
+            methodEnd = i + 1;
+            break;
+          }
+        }
+      }
+      
+      const hideWebViewMatch = [modifiedContent.substring(hideWebViewMethodStart, methodEnd)];
+      if (hideWebViewMatch[0]) {
+    const hideWebViewCode = `
+  private fun hideWebViewContainerInternal(force: Boolean = false) {
+    try {
+      android.util.Log.d("MainActivity", "hideWebViewContainer called, force=$force, preventAutoHide=$preventAutoHide, webViewContainer=\${webViewContainer != null}")
+
+      // If preventAutoHide is true and not force hide, don't execute hide operation
+      if (preventAutoHide && !force) {
+        android.util.Log.d("MainActivity", "hideWebViewContainer prevented by preventAutoHide flag")
+        return
+      }
+
+      // Hide WebView container
+      if (webViewContainer != null) {
+        android.util.Log.d("MainActivity", "Hiding MainActivity WebView container")
+
+        // First set visibility to GONE to ensure invisible
+        webViewContainer?.visibility = View.GONE
+
+        // Try to remove from parent view
+        val parent = webViewContainer?.parent as? ViewGroup
+        if (parent != null) {
+          try {
+            parent.removeView(webViewContainer)
+            android.util.Log.d("MainActivity", "WebView container removed from parent")
+          } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "Error removing WebView container from parent", e)
+          }
+        } else {
+          android.util.Log.d("MainActivity", "WebView container has no parent, trying to remove from decorView")
+          // If parent is null, try to remove directly from decorView
+          try {
+            val decorView = window.decorView as? ViewGroup
+            decorView?.removeView(webViewContainer)
+            android.util.Log.d("MainActivity", "WebView container removed from decorView")
+          } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "Error removing WebView container from decorView", e)
+          }
+        }
+
+        // Clean up all child views
+        webViewContainer?.removeAllViews()
+
+        // Clear reference
+        webViewContainer = null
+        android.util.Log.d("MainActivity", "MainActivity WebView container hidden and removed")
+      } else {
+        android.util.Log.d("MainActivity", "MainActivity WebView container is null, skipping")
+      }
+
+      // Also hide ImageView container
+      hideSplashImageViewContainer(force)
+
+      // Also hide SplashScreen2Activity's WebView container
+      // Even if SplashScreen2Activity has finish(), instance may still exist, container may still be on window
+      try {
+        val customSplashActivity = SplashScreen2Activity.getInstance()
+        if (customSplashActivity != null) {
+          android.util.Log.d("MainActivity", "Hiding SplashScreen2Activity WebView container")
+          customSplashActivity.hideWebViewContainer(force)
+        } else {
+          android.util.Log.d("MainActivity", "SplashScreen2Activity instance is null (already finished or not created)")
+        }
+      } catch (e: Exception) {
+        android.util.Log.d("MainActivity", "SplashScreen2Activity not available: " + e.message)
+      }
+
+      // Manually set MainActivity theme to @style/AppTheme after hiding splash screen
+      try {
+        setTheme(R.style.AppTheme)
+        android.util.Log.d("MainActivity", "MainActivity theme set to @style/AppTheme")
+      } catch (e: Exception) {
+        android.util.Log.e("MainActivity", "Error setting theme to AppTheme", e)
+      }
+
+      // Reset preventAutoHide flag (regardless of whether hide was successful)
+      preventAutoHide = false
+      android.util.Log.d("MainActivity", "preventAutoHide reset to false")
+    } catch (e: Exception) {
+      android.util.Log.e("MainActivity", "Error hiding WebView container", e)
+      e.printStackTrace()
+      // Even if error occurs, reset preventAutoHide
+      preventAutoHide = false
+    }
+  }`;
+        modifiedContent = modifiedContent.substring(0, hideWebViewMethodStart) +
+                         hideWebViewCode +
+                         modifiedContent.substring(methodEnd);
+      }
+    }
+  }
+
+  // Add onContentChanged method to call both setupSplashImageView and setupWebViewContainer
+  // Call setupSplashImageView first, then setupWebViewContainer to ensure proper z-order
+  const onContentChangedCode = `
+  override fun onContentChanged() {
+    super.onContentChanged()
+    // Show ImageView container and WebView container when content changed
+    // ImageView container (.9图背景) should be added first, then WebView container (透明背景) on top
+    Handler(Looper.getMainLooper()).post {
+      setupSplashImageView()
+      // Small delay to ensure ImageView container is added first
+      Handler(Looper.getMainLooper()).postDelayed({
+        setupWebViewContainer()
+      }, 50)
+    }
+  }`;
+
+  // Ensure onCreate has transparent status bar and navigation bar settings
+  // Also ensure onCreate method is properly formatted (not compressed to one line)
+  const onCreateMatchForStatusBar = modifiedContent.match(/override\s+fun\s+onCreate\s*\([^)]*\)\s*\{/);
+  if (onCreateMatchForStatusBar) {
+    const onCreateIndex = modifiedContent.indexOf(onCreateMatchForStatusBar[0]);
+    
+    // Find onCreate method end
+    let braceCount = 0;
+    let onCreateEndIndex = onCreateIndex + onCreateMatchForStatusBar[0].length;
+    let foundStart = false;
+    
+    for (let i = onCreateIndex; i < modifiedContent.length; i++) {
+      if (modifiedContent[i] === '{') {
+        braceCount++;
+        foundStart = true;
+      } else if (modifiedContent[i] === '}') {
+        braceCount--;
+        if (foundStart && braceCount === 0) {
+          onCreateEndIndex = i + 1;
+          break;
+        }
+      }
+    }
+    
+    const onCreateContent = modifiedContent.substring(onCreateIndex, onCreateEndIndex);
+    
+    // Check if onCreate is compressed to one line (contains multiple statements without proper newlines)
+    // Pattern: override fun onCreate(...) {super.onCreate(...)window.statusBarColor = ... window.navigationBarColor = ...}
+    const isCompressed = /override\s+fun\s+onCreate\s*\([^)]*\)\s*\{[^}]*super\.onCreate[^}]*window\.statusBarColor[^}]*window\.navigationBarColor[^}]*\}/.test(onCreateContent) &&
+                        !onCreateContent.includes('\n    super.onCreate') &&
+                        !onCreateContent.includes('\n    window.statusBarColor');
+    
+    if (isCompressed) {
+      // Reformat onCreate method to proper multi-line format
+      const superOnCreateMatch = onCreateContent.match(/super\.onCreate\([^)]*\)/);
+      const statusBarMatch = onCreateContent.match(/window\.statusBarColor\s*=\s*[^}\n]+/);
+      const navBarMatch = onCreateContent.match(/window\.navigationBarColor\s*=\s*[^}\n]+/);
+      
+      if (superOnCreateMatch && statusBarMatch && navBarMatch) {
+        const formattedOnCreate = `
+  override fun onCreate(savedInstanceState: Bundle?) {
+    ${superOnCreateMatch[0]}
+    ${statusBarMatch[0].trim()}
+    ${navBarMatch[0].replace(/[}]/g, '').trim()}
+  }`;
+        modifiedContent = modifiedContent.substring(0, onCreateIndex) +
+                         formattedOnCreate +
+                         modifiedContent.substring(onCreateEndIndex);
+      }
+    } else {
+      // Check if statusBarColor and navigationBarColor are already set
+      const hasStatusBarColor = onCreateContent.includes('window.statusBarColor');
+      const hasNavigationBarColor = onCreateContent.includes('window.navigationBarColor');
+      
+      if (!hasStatusBarColor || !hasNavigationBarColor) {
+        // Find super.onCreate call
+        const superOnCreateMatch = onCreateContent.match(/super\.onCreate\([^)]*\)/);
+        if (superOnCreateMatch) {
+          const superOnCreateEndIndex = onCreateContent.indexOf(superOnCreateMatch[0]) + superOnCreateMatch[0].length;
+          const nextLineIndex = onCreateContent.indexOf('\n', superOnCreateEndIndex);
+          const insertPos = onCreateIndex + (nextLineIndex !== -1 ? nextLineIndex + 1 : superOnCreateEndIndex);
+          
+          const statusBarCode = `
+    window.statusBarColor = android.graphics.Color.TRANSPARENT
+    window.navigationBarColor = android.graphics.Color.TRANSPARENT`;
+          
+          modifiedContent = modifiedContent.substring(0, insertPos) +
+                           statusBarCode + '\n' +
+                           modifiedContent.substring(insertPos);
+        }
+      }
+    }
+  }
+
+  // Check if onContentChanged already exists
+  if (!modifiedContent.includes('override fun onContentChanged()')) {
+    // Find a good place to insert onContentChanged (after onCreate or before getMainComponentName)
+    // Use precise matching to find onCreate method end
+    const onCreateMatchForInsert = modifiedContent.match(/override\s+fun\s+onCreate\s*\([^)]*\)\s*\{/);
+    if (onCreateMatchForInsert) {
+      const onCreateIndexForInsert = modifiedContent.indexOf(onCreateMatchForInsert[0]);
+      
+      // Find onCreate method end using brace matching
+      let braceCount = 0;
+      let onCreateEndIndexForInsert = onCreateIndexForInsert + onCreateMatchForInsert[0].length;
+      let foundStart = false;
+      
+      for (let i = onCreateIndexForInsert; i < modifiedContent.length; i++) {
+        if (modifiedContent[i] === '{') {
+          braceCount++;
+          foundStart = true;
+        } else if (modifiedContent[i] === '}') {
+          braceCount--;
+          if (foundStart && braceCount === 0) {
+            onCreateEndIndexForInsert = i + 1;
+            break;
+          }
+        }
+      }
+      
+      // Insert after onCreate method
+      modifiedContent = modifiedContent.substring(0, onCreateEndIndexForInsert) +
+                       '\n' + onContentChangedCode + '\n' +
+                       modifiedContent.substring(onCreateEndIndexForInsert);
+    } else {
+      // Fallback: insert before getMainComponentName
+      const getMainComponentMatch = modifiedContent.match(/override\s+fun\s+getMainComponentName/);
+      if (getMainComponentMatch) {
+        const insertPos = modifiedContent.indexOf(getMainComponentMatch[0]);
+        modifiedContent = modifiedContent.substring(0, insertPos) +
+                         onContentChangedCode + '\n\n' +
+                         modifiedContent.substring(insertPos);
+      }
+    }
   }
   
   return modifiedContent;
@@ -2110,7 +2621,49 @@ function generatePrivacyPolicyActivity(
 }
 
 /**
- * Modify AndroidManifest.xml for Blend mode (MainActivity uses @style/AppTheme)
+ * Modify AndroidManifest.xml for responsiveImage mode (MainActivity uses @style/AppTheme)
+ */
+function modifyAndroidManifestForImageMode(
+  manifest: AndroidManifest,
+  packageName: string
+): AndroidManifest {
+  const application = manifest.manifest.application?.[0];
+  const mainApplication =
+    application && typeof application === 'object' && 'activity' in application
+      ? application
+      : null;
+
+  if (!mainApplication || !mainApplication.activity) {
+    return manifest;
+  }
+
+  const mainActivityIndex = mainApplication.activity.findIndex((activity: any) => {
+    const name = activity.$?.['android:name'];
+    return (
+      name === '.MainActivity' ||
+      name === 'MainActivity' ||
+      name?.endsWith('.MainActivity') ||
+      name === `${packageName}.MainActivity`
+    );
+  });
+
+  if (mainActivityIndex === -1) {
+    console.warn('[expo-splash-screen2] MainActivity not found in AndroidManifest');
+    return manifest;
+  }
+
+  const mainActivity = mainApplication.activity[mainActivityIndex];
+  
+  // Set MainActivity's theme to @style/AppTheme for responsiveImage mode
+  if (mainActivity && mainActivity.$) {
+    mainActivity.$['android:theme'] = '@style/AppTheme';
+  }
+
+  return manifest;
+}
+
+/**
+ * Modify AndroidManifest.xml for Blend mode (MainActivity uses @style/Theme.App.SplashScreen)
  */
 function modifyAndroidManifestForBlendMode(
   manifest: AndroidManifest,
@@ -2145,7 +2698,7 @@ function modifyAndroidManifestForBlendMode(
 
   const mainActivity = mainApplication.activity[mainActivityIndex];
   
-  // Set MainActivity's theme to @style/Theme.App.SplashScreen (for blend mode, use same theme as splash screen)
+  // Set MainActivity's theme to @style/Theme.App.SplashScreen for blend mode
   if (mainActivity && mainActivity.$) {
     mainActivity.$['android:theme'] = '@style/Theme.App.SplashScreen';
   }
@@ -2816,1197 +3369,6 @@ function copyHtmlFileForIOS(
     fs.writeFileSync(targetPath, updatedHtmlContent, 'utf-8');
   } catch (error) {
     console.error(`[expo-splash-screen2] Error copying HTML file for iOS: ${error}`);
-  }
-}
-
-/**
- * Generate SplashScreen2Service.swift file (similar to EXSplashScreenService)
- */
-function generateSplashScreen2Service(
-  bundleIdentifier: string,
-  projectRoot: string,
-  iosPath: string,
-  projectName: string
-): void {
-  // Generate directly to iOS project directory
-  const targetDir = path.join(iosPath, projectName);
-  if (!fs.existsSync(targetDir)) {
-    fs.mkdirSync(targetDir, { recursive: true });
-  }
-
-  const servicePath = path.join(targetDir, 'SplashScreen2Service.swift');
-
-  const serviceContent = `import UIKit
-import WebKit
-
-// Protocol definition, used to replace AppDelegate type
-@objc public protocol AppDelegateProtocol {
-  @objc func startReactNativeIfNeeded()
-}
-
-// Similar to EXSplashScreenService, manages splash screen display and hiding
-public class SplashScreen2Service: NSObject {
-  private var splashScreenControllers: [UIViewController: SplashScreen2ViewController] = [:]
-  private weak var observingRootViewController: UIViewController?
-  // Global preventAutoHide state, applied to newly created splash screens
-  private var globalPreventAutoHide: Bool = false
-  private static let sharedInstance = SplashScreen2Service()
-  
-  public static var shared: SplashScreen2Service {
-    return sharedInstance
-  }
-  
-  private override init() {
-    super.init()
-  }
-  
-  // Show splash screen (similar to EXSplashScreenService.showSplashScreenFor)
-  public func showSplashScreenFor(_ viewController: UIViewController) {
-    print("[SplashScreen2Service] showSplashScreenFor called for viewController: \\(viewController)")
-    print("[SplashScreen2Service] showSplashScreenFor - globalPreventAutoHide: \\(globalPreventAutoHide)")
-    
-    // If already exists, clean up old one first
-    // Note: Using force=true here because we want to replace the old splash screen
-    // But if globalPreventAutoHide=true, we should keep the old one instead of cleaning it up
-    if let existingController = splashScreenControllers[viewController] {
-      if globalPreventAutoHide {
-        print("[SplashScreen2Service] showSplashScreenFor - globalPreventAutoHide is true, keeping existing splash screen")
-        // If preventAutoHide is already set, no need to recreate
-        // Ensure splash screen is on top layer and visible
-        if let splashVC = existingController.splashViewControllerInstance {
-          splashVC.view.isHidden = false
-          splashVC.view.alpha = 1.0
-          viewController.view.bringSubviewToFront(splashVC.view)
-          print("[SplashScreen2Service] showSplashScreenFor - Brought existing splash screen to front and ensured visibility")
-        }
-        return
-      } else {
-        print("[SplashScreen2Service] Splash screen already exists for view controller, cleaning up old one")
-        existingController.hide(force: true)
-        splashScreenControllers.removeValue(forKey: viewController)
-      }
-    }
-    
-    // Create SplashScreen2ViewController instance
-    let splashVC = SplashScreen2ViewController()
-    let splashScreenController = SplashScreen2ViewController(splashViewController: splashVC)
-    
-    // If global preventAutoHide state is true, apply immediately
-    if globalPreventAutoHide {
-      print("[SplashScreen2Service] showSplashScreenFor - Applying global preventAutoHide state")
-      splashScreenController.preventAutoHide()
-      // Ensure splash screen is visible (set before adding to parent view)
-      splashVC.view.isHidden = false
-      splashVC.view.alpha = 1.0
-    }
-    
-    // Set view's frame first, ensure correct size
-    // This must be done before adding to parent view
-    splashVC.view.frame = viewController.view.bounds
-    
-    // Print size information for debugging
-    print("[SplashScreen2Service] showSplashScreenFor - viewController.view.frame: \\(viewController.view.frame)")
-    print("[SplashScreen2Service] showSplashScreenFor - viewController.view.bounds: \\(viewController.view.bounds)")
-    print("[SplashScreen2Service] showSplashScreenFor - UIScreen.main.bounds: \\(UIScreen.main.bounds)")
-    print("[SplashScreen2Service] showSplashScreenFor - splashVC.view.frame (before addSubview): \\(splashVC.view.frame)")
-    
-    // Add SplashScreen2ViewController as child view controller (maintain lifecycle)
-    // This must be called before addSubview to ensure viewDidLoad is called at the right time
-    viewController.addChild(splashVC)
-    
-    // Add SplashScreen2ViewController's view to target view controller's view
-    viewController.view.addSubview(splashVC.view)
-    splashVC.view.translatesAutoresizingMaskIntoConstraints = false
-    
-    // Set constraints to ensure full screen display
-    NSLayoutConstraint.activate([
-      splashVC.view.topAnchor.constraint(equalTo: viewController.view.topAnchor),
-      splashVC.view.leadingAnchor.constraint(equalTo: viewController.view.leadingAnchor),
-      splashVC.view.trailingAnchor.constraint(equalTo: viewController.view.trailingAnchor),
-      splashVC.view.bottomAnchor.constraint(equalTo: viewController.view.bottomAnchor)
-    ])
-    
-    // 确保在最上层
-    viewController.view.bringSubviewToFront(splashVC.view)
-    
-    // 完成子 view controller 的添加
-    splashVC.didMove(toParent: viewController)
-    
-    // 强制布局更新，确保约束生效
-    viewController.view.setNeedsLayout()
-    viewController.view.layoutIfNeeded()
-    splashVC.view.setNeedsLayout()
-    splashVC.view.layoutIfNeeded()
-    
-    // 打印约束后的尺寸
-    print("[SplashScreen2Service] showSplashScreenFor - After constraints, splashVC.view.frame: \\(splashVC.view.frame)")
-    print("[SplashScreen2Service] showSplashScreenFor - After constraints, splashVC.view.bounds: \\(splashVC.view.bounds)")
-    print("[SplashScreen2Service] showSplashScreenFor - splashVC.view.superview: \\(String(describing: splashVC.view.superview))")
-    print("[SplashScreen2Service] showSplashScreenFor - splashVC.view.window: \\(String(describing: splashVC.view.window))")
-    
-    // 确保 WebView 已经正确挂载
-    // 延迟一点时间，确保 viewDidLoad 和 setupWebView 已经完成
-    DispatchQueue.main.async {
-      print("[SplashScreen2Service] showSplashScreenFor - After async, splashVC.view.frame: \\(splashVC.view.frame)")
-      print("[SplashScreen2Service] showSplashScreenFor - After async, splashVC.view.subviews.count: \\(splashVC.view.subviews.count)")
-      print("[SplashScreen2Service] showSplashScreenFor - After async, splashVC.view.isHidden: \\(splashVC.view.isHidden)")
-      print("[SplashScreen2Service] showSplashScreenFor - After async, splashVC.view.alpha: \\(splashVC.view.alpha)")
-      print("[SplashScreen2Service] showSplashScreenFor - After async, splashVC.view.superview: \\(String(describing: splashVC.view.superview))")
-      print("[SplashScreen2Service] showSplashScreenFor - After async, splashVC.view.window: \\(String(describing: splashVC.view.window))")
-      
-      // 检查是否有其他视图遮挡
-      if let superview = splashVC.view.superview {
-        print("[SplashScreen2Service] showSplashScreenFor - superview.subviews.count: \\(superview.subviews.count)")
-        for (index, subview) in superview.subviews.enumerated() {
-          print("[SplashScreen2Service] showSplashScreenFor - superview.subview[\\(index)]: \\(type(of: subview)), frame: \\(subview.frame), isHidden: \\(subview.isHidden), alpha: \\(subview.alpha)")
-        }
-      }
-      
-      for (index, subview) in splashVC.view.subviews.enumerated() {
-        print("[SplashScreen2Service] showSplashScreenFor - subview[\\(index)]: \\(type(of: subview)), frame: \\(subview.frame), isHidden: \\(subview.isHidden), alpha: \\(subview.alpha)")
-        
-        // 确保 WebView 可见
-        if let webView = subview as? WKWebView {
-          webView.isHidden = false
-          webView.alpha = 1.0
-          print("[SplashScreen2Service] showSplashScreenFor - WebView visibility set: isHidden=\\(webView.isHidden), alpha=\\(webView.alpha)")
-        }
-      }
-      
-      // 确保 view 在最上层
-      if let superview = splashVC.view.superview {
-        superview.bringSubviewToFront(splashVC.view)
-        print("[SplashScreen2Service] showSplashScreenFor - Brought splashVC.view to front")
-      }
-    }
-    
-    splashScreenControllers[viewController] = splashScreenController
-    splashScreenController.show()
-  }
-  
-  // 隐藏 splash screen（类似 EXSplashScreenService.hideSplashScreenFor）
-  public func hideSplashScreenFor(_ viewController: UIViewController, force: Bool = false) {
-    print("[SplashScreen2Service] hideSplashScreenFor called for viewController: \\(viewController), force: \\(force)")
-    print("[SplashScreen2Service] hideSplashScreenFor - globalPreventAutoHide: \\(globalPreventAutoHide)")
-    
-    guard let controller = splashScreenControllers[viewController] else {
-      print("[SplashScreen2Service] No splash screen found for view controller")
-      return
-    }
-    
-    // 如果 globalPreventAutoHide 为 true 且 force 为 false，不执行隐藏操作
-    if globalPreventAutoHide && !force {
-      print("[SplashScreen2Service] hideSplashScreenFor - globalPreventAutoHide is true and force is false, ignoring hide call")
-      print("[SplashScreen2Service] hideSplashScreenFor - Stack trace: \\(Thread.callStackSymbols.prefix(5).joined(separator: "\\n"))")
-      // 确保 splash screen 仍然可见且在最上层
-      if let splashVC = controller.splashViewControllerInstance {
-        splashVC.view.isHidden = false
-        splashVC.view.alpha = 1.0
-        if let parent = splashVC.parent {
-          parent.view.bringSubviewToFront(splashVC.view)
-        } else if let superview = splashVC.view.superview {
-          superview.bringSubviewToFront(splashVC.view)
-        }
-        print("[SplashScreen2Service] hideSplashScreenFor - Ensured splash screen is still visible and on top")
-      }
-      return
-    }
-    
-    print("[SplashScreen2Service] hideSplashScreenFor - Proceeding with hide, force: \\(force)")
-    // 使用 force=true 强制隐藏，即使 preventAutoHide 被调用
-    controller.hide(force: force)
-    splashScreenControllers.removeValue(forKey: viewController)
-  }
-  
-  // 隐藏所有 splash screen（用于强制隐藏所有已知的 splash screen）
-  public func hideAllSplashScreens(force: Bool = true) {
-    print("[SplashScreen2Service] hideAllSplashScreens called, force: \\(force)")
-    print("[SplashScreen2Service] hideAllSplashScreens - splashScreenControllers count: \\(splashScreenControllers.count)")
-    
-    // 复制字典的键，因为我们在迭代过程中会修改字典
-    let allViewControllers = Array(splashScreenControllers.keys)
-    
-    for viewController in allViewControllers {
-      print("[SplashScreen2Service] hideAllSplashScreens - Hiding splash screen for: \\(viewController)")
-      hideSplashScreenFor(viewController, force: force)
-    }
-    
-    print("[SplashScreen2Service] hideAllSplashScreens - Completed, remaining count: \\(splashScreenControllers.count)")
-  }
-  
-  // 防止自动隐藏（类似 EXSplashScreenService.preventSplashScreenAutoHideFor）
-  public func preventAutoHideFor(_ viewController: UIViewController) {
-    print("[SplashScreen2Service] preventAutoHideFor called for viewController: \\(viewController)")
-    print("[SplashScreen2Service] preventAutoHideFor - Stack trace: \\(Thread.callStackSymbols.prefix(5).joined(separator: "\\n"))")
-    
-    // 设置全局 preventAutoHide 状态（必须在最开始设置）
-    globalPreventAutoHide = true
-    print("[SplashScreen2Service] preventAutoHideFor - Set globalPreventAutoHide to true")
-    
-    // 如果还没有 splash screen，先创建一个
-    if splashScreenControllers[viewController] == nil {
-      print("[SplashScreen2Service] preventAutoHideFor - No splash screen found, creating one first")
-      showSplashScreenFor(viewController)
-    }
-    
-    // 对所有现有的 splash screen 应用 preventAutoHide
-    for (vc, controller) in splashScreenControllers {
-      print("[SplashScreen2Service] preventAutoHideFor - Applying preventAutoHide to existing splash screen for viewController: \\(vc)")
-      controller.preventAutoHide()
-      // 确保 splash screen 可见且在最上层
-      if let splashVC = controller.splashViewControllerInstance {
-        splashVC.view.isHidden = false
-        splashVC.view.alpha = 1.0
-        if let parent = splashVC.parent {
-          parent.view.bringSubviewToFront(splashVC.view)
-        } else if let superview = splashVC.view.superview {
-          superview.bringSubviewToFront(splashVC.view)
-        }
-        print("[SplashScreen2Service] preventAutoHideFor - Ensured splash screen is visible and on top for viewController: \\(vc)")
-      }
-    }
-    
-    guard let controller = splashScreenControllers[viewController] else {
-      print("[SplashScreen2Service] preventAutoHideFor - Failed to create or find splash screen")
-      return
-    }
-    
-    print("[SplashScreen2Service] preventAutoHideFor - Calling preventAutoHide on controller")
-    controller.preventAutoHide()
-    
-    // 确保 splash screen 可见且在最上层
-    if let splashVC = controller.splashViewControllerInstance {
-      splashVC.view.isHidden = false
-      splashVC.view.alpha = 1.0
-      if let parent = splashVC.parent {
-        parent.view.bringSubviewToFront(splashVC.view)
-      } else if let superview = splashVC.view.superview {
-        superview.bringSubviewToFront(splashVC.view)
-      }
-      print("[SplashScreen2Service] preventAutoHideFor - Ensured splash screen is visible and on top")
-    }
-    
-    print("[SplashScreen2Service] preventAutoHideFor - preventAutoHide called successfully")
-  }
-  
-  // 添加 rootViewController 监听（类似 EXSplashScreenService.addRootViewControllerListener）
-  public func addRootViewControllerListener() {
-    guard Thread.isMainThread else {
-      DispatchQueue.main.async { [weak self] in
-        self?.addRootViewControllerListener()
-      }
-      return
-    }
-    
-    // 如果已经有监听器，先移除旧的
-    if observingRootViewController != nil {
-      print("[SplashScreen2Service] addRootViewControllerListener: Already observing, removing old listener first")
-      removeRootViewControllerListener()
-    }
-    
-    if let window = UIApplication.shared.keyWindow {
-      window.addObserver(self, forKeyPath: "rootViewController", options: .new, context: nil)
-      
-      // 如果已经有 rootViewController，立即显示 splash screen
-      if let rootViewController = window.rootViewController {
-        print("[SplashScreen2Service] addRootViewControllerListener: Found existing rootViewController: \\(rootViewController)")
-        print("[SplashScreen2Service] addRootViewControllerListener - globalPreventAutoHide: \\(globalPreventAutoHide)")
-        
-        // 只有当 rootViewController 不是当前观察的对象时才添加监听器
-        if rootViewController != observingRootViewController {
-          rootViewController.addObserver(self, forKeyPath: "view", options: .new, context: nil)
-          observingRootViewController = rootViewController
-          
-          // 立即显示 splash screen（只有当还没有显示时才显示）
-          // 如果 globalPreventAutoHide 为 true，且已经存在 splash screen，不需要重新创建
-          if splashScreenControllers[rootViewController] == nil {
-            if globalPreventAutoHide {
-              print("[SplashScreen2Service] addRootViewControllerListener - globalPreventAutoHide is true but no splash screen found, this should not happen")
-            }
-            showSplashScreenFor(rootViewController)
-          } else {
-            print("[SplashScreen2Service] addRootViewControllerListener: Splash screen already exists for rootViewController, skipping")
-            // 如果 globalPreventAutoHide 为 true，确保 splash screen 在最上层
-            if globalPreventAutoHide, let controller = splashScreenControllers[rootViewController] {
-              print("[SplashScreen2Service] addRootViewControllerListener - Ensuring splash screen is on top")
-              if let splashVC = controller.splashViewControllerInstance {
-                rootViewController.view.bringSubviewToFront(splashVC.view)
-              }
-            }
-          }
-        }
-      } else {
-        // 如果没有 rootViewController，创建一个临时的 view controller 来显示 splash screen
-        // 这确保在 RN 启动之前就能看到 splash screen
-        print("[SplashScreen2Service] addRootViewControllerListener: No rootViewController, creating temp one")
-        let tempViewController = UIViewController()
-        tempViewController.view.backgroundColor = .clear
-        window.rootViewController = tempViewController
-        window.makeKeyAndVisible()
-        
-        tempViewController.addObserver(self, forKeyPath: "view", options: .new, context: nil)
-        observingRootViewController = tempViewController
-        
-        // 立即显示 splash screen
-        showSplashScreenFor(tempViewController)
-      }
-    } else {
-      print("[SplashScreen2Service] addRootViewControllerListener: No keyWindow found")
-    }
-  }
-  
-  // 移除 rootViewController 监听（类似 EXSplashScreenService.removeRootViewControllerListener）
-  public func removeRootViewControllerListener() {
-    guard Thread.isMainThread else {
-      DispatchQueue.main.async { [weak self] in
-        self?.removeRootViewControllerListener()
-      }
-      return
-    }
-    
-    if let rootViewController = observingRootViewController {
-      if let window = rootViewController.view.window {
-        window.removeObserver(self, forKeyPath: "rootViewController")
-      }
-      rootViewController.removeObserver(self, forKeyPath: "view")
-      observingRootViewController = nil
-    }
-  }
-  
-  // KVO 监听（类似 EXSplashScreenService.observeValueForKeyPath）
-  public override func observeValue(forKeyPath keyPath: String?, of object: Any?, change: [NSKeyValueChangeKey : Any]?, context: UnsafeMutableRawPointer?) {
-    if let window = object as? UIWindow, keyPath == "rootViewController" {
-      if let newRootViewController = change?[.newKey] as? UIViewController,
-         newRootViewController != observingRootViewController {
-        print("[SplashScreen2Service] rootViewController changed from \\(String(describing: observingRootViewController)) to \\(newRootViewController)")
-        print("[SplashScreen2Service] rootViewController changed - globalPreventAutoHide: \\(globalPreventAutoHide)")
-        
-        // 尝试复用已有的 splash screen（无论是否调用 preventAutoHide）
-        if let oldRootViewController = observingRootViewController,
-           let oldController = splashScreenControllers[oldRootViewController],
-           let splashVC = oldController.splashViewControllerInstance {
-          print("[SplashScreen2Service] rootViewController changed - Reusing existing splash screen instance")
-          
-          // 更新字典中的引用
-          splashScreenControllers.removeValue(forKey: oldRootViewController)
-          splashScreenControllers[newRootViewController] = oldController
-          
-          // 从旧的父控制器分离
-          splashVC.view.removeFromSuperview()
-          splashVC.willMove(toParent: nil)
-          if let oldParent = splashVC.parent {
-            splashVC.removeFromParent()
-          }
-          
-          // 添加到新的 rootViewController
-          newRootViewController.addChild(splashVC)
-          newRootViewController.view.addSubview(splashVC.view)
-          splashVC.view.translatesAutoresizingMaskIntoConstraints = false
-          NSLayoutConstraint.activate([
-            splashVC.view.topAnchor.constraint(equalTo: newRootViewController.view.topAnchor),
-            splashVC.view.leadingAnchor.constraint(equalTo: newRootViewController.view.leadingAnchor),
-            splashVC.view.trailingAnchor.constraint(equalTo: newRootViewController.view.trailingAnchor),
-            splashVC.view.bottomAnchor.constraint(equalTo: newRootViewController.view.bottomAnchor)
-          ])
-          newRootViewController.view.bringSubviewToFront(splashVC.view)
-          splashVC.didMove(toParent: newRootViewController)
-          splashVC.view.isHidden = false
-          splashVC.view.alpha = 1.0
-          
-          // 迁移完成后，确保隐私弹框被隐藏（如果用户已同意）
-          splashVC.ensurePrivacyDialogHidden()
-          
-          print("[SplashScreen2Service] rootViewController changed - Splash screen reused successfully")
-        } else if let oldRootViewController = observingRootViewController,
-                  splashScreenControllers[oldRootViewController] == nil {
-          // 旧 rootViewController 没有记录，说明之前没有成功创建 splash screen
-          print("[SplashScreen2Service] rootViewController changed - No existing splash screen to reuse, creating new one")
-          showSplashScreenFor(newRootViewController)
-        }
-        
-        // 先移除旧的监听器
-        removeRootViewControllerListener()
-        
-        // 重新添加监听器（这会设置新的 observingRootViewController 并显示 splash screen）
-        // 注意：addRootViewControllerListener() 内部会调用 showSplashScreenFor，所以不需要在这里单独调用
-        // 但如果 globalPreventAutoHide 为 true，且已经迁移了 splash screen，不需要重新添加监听器
-        if !globalPreventAutoHide || splashScreenControllers[newRootViewController] == nil {
-          addRootViewControllerListener()
-        } else {
-          print("[SplashScreen2Service] rootViewController changed - globalPreventAutoHide is true and splash screen already migrated, skipping addRootViewControllerListener")
-          // 仍然需要更新 observingRootViewController 和添加监听器
-          if let window = UIApplication.shared.keyWindow {
-            window.addObserver(self, forKeyPath: "rootViewController", options: .new, context: nil)
-            newRootViewController.addObserver(self, forKeyPath: "view", options: .new, context: nil)
-            observingRootViewController = newRootViewController
-            // 确保 splash screen 在最上层且可见
-            if let controller = splashScreenControllers[newRootViewController],
-               let splashVC = controller.splashViewControllerInstance {
-              splashVC.view.isHidden = false
-              splashVC.view.alpha = 1.0
-              newRootViewController.view.bringSubviewToFront(splashVC.view)
-              print("[SplashScreen2Service] rootViewController changed - Brought migrated splash screen to front and ensured visibility")
-            }
-          }
-        }
-      }
-    } else if let rootViewController = object as? UIViewController, keyPath == "view" {
-      if let newView = change?[.newKey] as? UIView,
-         let viewController = newView.next as? UIViewController {
-        print("[SplashScreen2Service] view changed for viewController: \\(viewController)")
-        print("[SplashScreen2Service] view changed - globalPreventAutoHide: \\(globalPreventAutoHide)")
-        
-        // 如果 globalPreventAutoHide 为 true，确保现有的 splash screen 保持显示
-        if globalPreventAutoHide {
-          if let controller = splashScreenControllers[viewController] {
-            print("[SplashScreen2Service] view changed - globalPreventAutoHide is true, ensuring splash screen is visible")
-            if let splashVC = controller.splashViewControllerInstance {
-              splashVC.view.isHidden = false
-              splashVC.view.alpha = 1.0
-              viewController.view.bringSubviewToFront(splashVC.view)
-            }
-            return
-          } else {
-            // 如果 globalPreventAutoHide 为 true 但没有 splash screen，创建一个
-            print("[SplashScreen2Service] view changed - globalPreventAutoHide is true but no splash screen, creating one")
-            showSplashScreenFor(viewController)
-            return
-          }
-        }
-        
-        // 只有当 view 真正加载完成时才重新显示 splash screen
-        // 避免在 view 创建过程中重复调用
-        if viewController.view.superview != nil && splashScreenControllers[viewController] == nil {
-          print("[SplashScreen2Service] View loaded, showing splash screen")
-          showSplashScreenFor(viewController)
-        } else if splashScreenControllers[viewController] != nil {
-          print("[SplashScreen2Service] Splash screen already exists for this view controller, skipping")
-        }
-      }
-    }
-  }
-}
-
-// 类似 EXSplashScreenViewController，管理单个 splash screen 的显示和隐藏
-public class SplashScreen2ViewController {
-  private weak var splashViewController: SplashScreen2ViewController?
-  private var autoHideEnabled: Bool = true
-  private var splashScreenShown: Bool = false
-  private var appContentAppeared: Bool = false
-  
-  // 添加一个属性来访问 splashViewController，用于迁移
-  var splashViewControllerInstance: SplashScreen2ViewController? {
-    return splashViewController
-  }
-  
-  init(splashViewController: SplashScreen2ViewController) {
-    self.splashViewController = splashViewController
-  }
-  
-  func show() {
-    guard Thread.isMainThread else {
-      DispatchQueue.main.async { [weak self] in
-        self?.show()
-      }
-      return
-    }
-    
-    guard let splashVC = splashViewController else { return }
-    
-    print("[SplashScreen2ViewController] show() called")
-    print("[SplashScreen2ViewController] show() - splashVC.view.isHidden: \\(splashVC.view.isHidden)")
-    print("[SplashScreen2ViewController] show() - splashVC.view.alpha: \\(splashVC.view.alpha)")
-    print("[SplashScreen2ViewController] show() - splashVC.view.superview: \\(String(describing: splashVC.view.superview))")
-    print("[SplashScreen2ViewController] show() - splashVC.view.window: \\(String(describing: splashVC.view.window))")
-    
-    // 确保 view 可见
-    splashVC.view.isHidden = false
-    splashVC.view.alpha = 1.0
-    
-    // 确保 WebView 也可见
-    for subview in splashVC.view.subviews {
-      if let webView = subview as? WKWebView {
-        webView.isHidden = false
-        webView.alpha = 1.0
-        print("[SplashScreen2ViewController] show() - WebView visibility set: isHidden=\\(webView.isHidden), alpha=\\(webView.alpha)")
-      }
-    }
-    
-    // 确保在最上层
-    if let parent = splashVC.parent {
-      parent.view.bringSubviewToFront(splashVC.view)
-      print("[SplashScreen2ViewController] show() - Brought splashVC.view to front in parent")
-    } else if let superview = splashVC.view.superview {
-      superview.bringSubviewToFront(splashVC.view)
-      print("[SplashScreen2ViewController] show() - Brought splashVC.view to front in superview")
-    }
-    
-    // 强制布局更新
-    splashVC.view.setNeedsLayout()
-    splashVC.view.layoutIfNeeded()
-    
-    print("[SplashScreen2ViewController] show() - After show, splashVC.view.isHidden: \\(splashVC.view.isHidden)")
-    print("[SplashScreen2ViewController] show() - After show, splashVC.view.alpha: \\(splashVC.view.alpha)")
-    print("[SplashScreen2ViewController] show() - After show, splashVC.view.subviews.count: \\(splashVC.view.subviews.count)")
-    
-    splashScreenShown = true
-  }
-  
-  func hide(force: Bool = false) {
-    guard Thread.isMainThread else {
-      DispatchQueue.main.async { [weak self] in
-        self?.hide(force: force)
-      }
-      return
-    }
-    
-    print("[SplashScreen2ViewController] hide called, force: \\(force), autoHideEnabled: \\(autoHideEnabled)")
-    print("[SplashScreen2ViewController] hide - Stack trace: \\(Thread.callStackSymbols.prefix(5).joined(separator: "\\n"))")
-    
-    // 如果 preventAutoHide 被调用，且不是强制隐藏，则不执行隐藏操作
-    if !force && !autoHideEnabled {
-      print("[SplashScreen2ViewController] Auto hide is prevented, ignoring hide call (use force=true to override)")
-      // 确保 splash screen 仍然可见
-      if let splashVC = splashViewController {
-        splashVC.view.isHidden = false
-        splashVC.view.alpha = 1.0
-        if let parent = splashVC.parent {
-          parent.view.bringSubviewToFront(splashVC.view)
-        } else if let superview = splashVC.view.superview {
-          superview.bringSubviewToFront(splashVC.view)
-        }
-      }
-      return
-    }
-    
-    guard let splashVC = splashViewController else {
-      print("[SplashScreen2ViewController] hide - splashViewController is nil")
-      return
-    }
-    
-    print("[SplashScreen2ViewController] hide - Proceeding with hide animation")
-    
-    UIView.animate(withDuration: 0.3, animations: {
-      splashVC.view.alpha = 0.0
-    }) { _ in
-      print("[SplashScreen2ViewController] hide - Animation completed, removing from superview")
-      splashVC.view.removeFromSuperview()
-      splashVC.willMove(toParent: nil)
-      if let parent = splashVC.parent {
-        splashVC.removeFromParent()
-      }
-    }
-    
-    splashScreenShown = false
-    // 注意：只有在强制隐藏时才重置 autoHideEnabled
-    // 如果 preventAutoHide 被调用，autoHideEnabled 应该保持为 false
-    if force {
-      autoHideEnabled = true
-    }
-  }
-  
-  func preventAutoHide() {
-    print("[SplashScreen2ViewController] preventAutoHide called, autoHideEnabled: \\(autoHideEnabled)")
-    guard autoHideEnabled else {
-      print("[SplashScreen2ViewController] preventAutoHide - Already prevented, skipping")
-      return
-    }
-    autoHideEnabled = false
-    print("[SplashScreen2ViewController] preventAutoHide - Set autoHideEnabled to false")
-  }
-  
-  func needsHideOnAppContentDidAppear() -> Bool {
-    if !appContentAppeared && autoHideEnabled {
-      appContentAppeared = true
-      return true
-    }
-    return false
-  }
-  
-  func needsShowOnAppContentWillReload() -> Bool {
-    if !appContentAppeared {
-      // 注意：如果 preventAutoHide 已经被调用，不应该重置 autoHideEnabled
-      // 只有在 preventAutoHide 没有被调用时才重置
-      if autoHideEnabled {
-        autoHideEnabled = true
-      }
-      appContentAppeared = false
-      return true
-    }
-    return false
-  }
-}
-`;
-
-  try {
-    fs.writeFileSync(servicePath, serviceContent);
-  } catch (error) {
-    console.error(`[expo-splash-screen2] Failed to generate SplashScreen2Service.swift:`, error);
-    throw error;
-  }
-}
-
-/**
- * 生成 SplashScreen2ViewController.swift 文件（简化版，只用于 WebView 显示 HTML）
- */
-function generateSplashScreen2ViewController(
-  bundleIdentifier: string,
-  projectRoot: string,
-  iosPath: string,
-  backgroundColor: string,
-  projectName: string
-): void {
-  // 直接生成到 iOS 项目目录
-  const targetDir = path.join(iosPath, projectName);
-  if (!fs.existsSync(targetDir)) {
-    fs.mkdirSync(targetDir, { recursive: true });
-  }
-
-  const viewControllerPath = path.join(targetDir, 'SplashScreen2ViewController.swift');
-
-  const viewControllerContent = `import UIKit
-import WebKit
-
-// 简化版 SplashScreen2ViewController，只用于 WebView 显示 HTML
-// 参考 expo-splash-screen 的架构，但使用 WebView 显示 HTML
-public class SplashScreen2ViewController: UIViewController {
-  private var webView: WKWebView?
-  private var webViewContainer: UIView?
-  private let userDefaults = UserDefaults.standard
-  
-  public static weak var appDelegate: AppDelegateProtocol?
-  
-  public override func viewDidLoad() {
-    super.viewDidLoad()
-    
-    print("[SplashScreen2ViewController] viewDidLoad called")
-    print("[SplashScreen2ViewController] viewDidLoad - view.frame: \\(view.frame)")
-    print("[SplashScreen2ViewController] viewDidLoad - view.bounds: \\(view.bounds)")
-    print("[SplashScreen2ViewController] viewDidLoad - view.superview: \\(String(describing: view.superview))")
-    print("[SplashScreen2ViewController] viewDidLoad - view.window: \\(String(describing: view.window))")
-    
-    // 设置 view 的背景色为传入的 backgroundColor
-    // 将十六进制颜色转换为 UIColor
-    let hexColor = "${backgroundColor}".uppercased().replacingOccurrences(of: "#", with: "")
-    if hexColor.count == 6 {
-      let r = CGFloat(Int(hexColor.prefix(2), radix: 16) ?? 0) / 255.0
-      let g = CGFloat(Int(String(hexColor.dropFirst(2).prefix(2)), radix: 16) ?? 0) / 255.0
-      let b = CGFloat(Int(hexColor.suffix(2), radix: 16) ?? 0) / 255.0
-      view.backgroundColor = UIColor(red: r, green: g, blue: b, alpha: 1.0)
-    } else {
-      view.backgroundColor = .clear
-    }
-    
-    // 确保全屏显示
-    edgesForExtendedLayout = .all
-    
-    // 如果 view 已经有 superview，确保 frame 正确
-    if let superview = view.superview {
-      view.frame = superview.bounds
-      print("[SplashScreen2ViewController] viewDidLoad - Updated view.frame to superview.bounds: \\(view.frame)")
-    } else {
-      // 如果没有 superview，使用屏幕尺寸
-      view.frame = UIScreen.main.bounds
-      print("[SplashScreen2ViewController] viewDidLoad - Set view.frame to UIScreen.main.bounds: \\(view.frame)")
-    }
-    
-    // 注册通知监听
-    NotificationCenter.default.addObserver(
-      self,
-      selector: #selector(handlePreventAutoHide),
-      name: NSNotification.Name("SplashHtmlPreventAutoHide"),
-      object: nil
-    )
-    NotificationCenter.default.addObserver(
-      self,
-      selector: #selector(handleHide),
-      name: NSNotification.Name("SplashHtmlHide"),
-      object: nil
-    )
-    
-    setupWebView()
-  }
-  
-  deinit {
-    // 移除通知监听
-    NotificationCenter.default.removeObserver(self)
-  }
-  
-  @objc private func handlePreventAutoHide() {
-    print("[SplashScreen2ViewController] handlePreventAutoHide called")
-    // 通过 SplashScreen2Service 防止自动隐藏
-    // 需要传递 parent view controller（通常是 rootViewController）
-    if let parentVC = parent {
-      SplashScreen2Service.shared.preventAutoHideFor(parentVC)
-    } else if let rootVC = view.window?.rootViewController {
-      SplashScreen2Service.shared.preventAutoHideFor(rootVC)
-    } else {
-      print("[SplashScreen2ViewController] handlePreventAutoHide - No parent or rootViewController found")
-    }
-  }
-  
-  @objc private func handleHide() {
-    print("[SplashScreen2ViewController] handleHide called")
-    // 通过 SplashScreen2Service 隐藏开屏
-    // 需要传递 parent view controller（通常是 rootViewController）
-    if let parentVC = parent {
-      SplashScreen2Service.shared.hideSplashScreenFor(parentVC, force: true)
-    } else if let rootVC = view.window?.rootViewController {
-      SplashScreen2Service.shared.hideSplashScreenFor(rootVC, force: true)
-    } else {
-      print("[SplashScreen2ViewController] handleHide - No parent or rootViewController found")
-    }
-  }
-  
-  public override func viewWillAppear(_ animated: Bool) {
-    super.viewWillAppear(animated)
-    
-    // 强制设置 view 的 frame 为全屏
-    if let window = view.window {
-      view.frame = window.bounds
-    } else {
-      view.frame = UIScreen.main.bounds
-    }
-    
-    print("[SplashScreen2ViewController] viewWillAppear - view.frame: \\(view.frame)")
-    print("[SplashScreen2ViewController] viewWillAppear - view.bounds: \\(view.bounds)")
-    print("[SplashScreen2ViewController] viewWillAppear - UIScreen.main.bounds: \\(UIScreen.main.bounds)")
-  }
-  
-  public override func viewDidLayoutSubviews() {
-    super.viewDidLayoutSubviews()
-    
-    // 强制设置 view 的 frame 为全屏
-    if let window = view.window {
-      view.frame = window.bounds
-    } else {
-      view.frame = UIScreen.main.bounds
-    }
-    
-    // 确保 webView 也是全屏
-    if let webView = webView {
-      webView.frame = view.bounds
-      print("[SplashScreen2ViewController] viewDidLayoutSubviews - webView.frame: \\(webView.frame)")
-      print("[SplashScreen2ViewController] viewDidLayoutSubviews - webView.bounds: \\(webView.bounds)")
-    }
-  }
-  
-  private func setupWebView() {
-    let config = WKWebViewConfiguration()
-    config.preferences.javaScriptEnabled = true
-    config.allowsInlineMediaPlayback = true
-    config.mediaTypesRequiringUserActionForPlayback = []
-    
-    // 添加 JavaScript 接口
-    let contentController = WKUserContentController()
-    contentController.add(self, name: "agreePrivacyPolicy")
-    contentController.add(self, name: "disagreePrivacyPolicy")
-    contentController.add(self, name: "openPrivacyPolicy")
-    config.userContentController = contentController
-    
-    webView = WKWebView(frame: view.bounds, configuration: config)
-    // 设置透明背景
-    webView?.backgroundColor = .clear
-    webView?.isOpaque = false
-    webView?.scrollView.backgroundColor = .clear
-    webView?.scrollView.showsVerticalScrollIndicator = false
-    webView?.scrollView.showsHorizontalScrollIndicator = false
-    webView?.scrollView.bounces = false
-    webView?.scrollView.isScrollEnabled = false
-    webView?.allowsLinkPreview = false
-    webView?.allowsBackForwardNavigationGestures = false
-    
-    if #available(iOS 11.0, *) {
-      webView?.scrollView.contentInsetAdjustmentBehavior = .never
-    }
-    
-    guard let webView = webView else { return }
-    
-    // 确保 view 的 frame 正确
-    if view.frame == .zero {
-      if let superview = view.superview {
-        view.frame = superview.bounds
-      } else {
-        view.frame = UIScreen.main.bounds
-      }
-      print("[SplashScreen2ViewController] setupWebView - view.frame was zero, updated to: \\(view.frame)")
-    }
-    
-    // 确保 webView 的 frame 正确
-    if webView.frame == .zero {
-      webView.frame = view.bounds
-      print("[SplashScreen2ViewController] setupWebView - webView.frame was zero, updated to: \\(webView.frame)")
-    }
-    
-    // 将 WebView 添加到 view 上
-    view.addSubview(webView)
-    print("[SplashScreen2ViewController] setupWebView - WebView added to view, view.subviews.count: \\(view.subviews.count)")
-    
-    webView.translatesAutoresizingMaskIntoConstraints = false
-    NSLayoutConstraint.activate([
-      webView.topAnchor.constraint(equalTo: view.topAnchor),
-      webView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-      webView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-      webView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
-    ])
-    
-    // 强制布局更新
-    view.setNeedsLayout()
-    view.layoutIfNeeded()
-    webView.setNeedsLayout()
-    webView.layoutIfNeeded()
-    
-    // 打印尺寸信息用于调试
-    print("[SplashScreen2ViewController] setupWebView - view.frame: \\(view.frame)")
-    print("[SplashScreen2ViewController] setupWebView - view.bounds: \\(view.bounds)")
-    print("[SplashScreen2ViewController] setupWebView - view.superview: \\(String(describing: view.superview))")
-    print("[SplashScreen2ViewController] setupWebView - view.window: \\(String(describing: view.window))")
-    print("[SplashScreen2ViewController] setupWebView - view.isHidden: \\(view.isHidden)")
-    print("[SplashScreen2ViewController] setupWebView - view.alpha: \\(view.alpha)")
-    print("[SplashScreen2ViewController] setupWebView - webView.frame: \\(webView.frame)")
-    print("[SplashScreen2ViewController] setupWebView - webView.bounds: \\(webView.bounds)")
-    print("[SplashScreen2ViewController] setupWebView - webView.superview: \\(String(describing: webView.superview))")
-    print("[SplashScreen2ViewController] setupWebView - webView.isHidden: \\(webView.isHidden)")
-    print("[SplashScreen2ViewController] setupWebView - webView.alpha: \\(webView.alpha)")
-    print("[SplashScreen2ViewController] setupWebView - webView.isOpaque: \\(webView.isOpaque)")
-    print("[SplashScreen2ViewController] setupWebView - webView.backgroundColor: \\(String(describing: webView.backgroundColor))")
-    print("[SplashScreen2ViewController] setupWebView - UIScreen.main.bounds: \\(UIScreen.main.bounds)")
-    
-    // 确保 WebView 可见
-    webView.isHidden = false
-    webView.alpha = 1.0
-    view.isHidden = false
-    view.alpha = 1.0
-    
-    print("[SplashScreen2ViewController] setupWebView - After setting visibility, webView.isHidden: \\(webView.isHidden), webView.alpha: \\(webView.alpha)")
-    
-    webView.navigationDelegate = self
-    
-    // 加载 HTML 文件
-    if let htmlPath = Bundle.main.path(forResource: "index", ofType: "html") {
-      if let htmlString = try? String(contentsOfFile: htmlPath, encoding: .utf8) {
-        let baseURL = URL(fileURLWithPath: htmlPath).deletingLastPathComponent()
-        webView.loadHTMLString(htmlString, baseURL: baseURL)
-      }
-    }
-  }
-  
-  private func handleAgreePrivacyPolicy() {
-    userDefaults.set(true, forKey: "isAuth")
-    userDefaults.synchronize()
-    
-    let hideDialogJS = """
-      (function() {
-        try {
-          if (typeof closePrivacyDialog === 'function') {
-            closePrivacyDialog();
-          }
-          if (typeof hidePrivacyDialog === 'function') {
-            hidePrivacyDialog();
-          }
-          return true;
-        } catch (e) {
-          return false;
-        }
-      })();
-    """
-    
-    let startReactNative: () -> Void = {
-      DispatchQueue.main.async {
-        if let appDelegate = SplashScreen2ViewController.appDelegate {
-          appDelegate.startReactNativeIfNeeded()
-        }
-      }
-    }
-    
-    // 先尝试通过 JS 隐藏弹框，等结果返回后再启动 RN
-    webView?.evaluateJavaScript(hideDialogJS) { _, error in
-      if let error = error {
-        print("[SplashScreen2ViewController] hide dialog JS error: \\(error)")
-      }
-      startReactNative()
-    } ?? startReactNative()
-  }
-  
-  // 公共方法：确保隐私弹框被隐藏（用于迁移后重新注入状态）
-  public func ensurePrivacyDialogHidden() {
-    let isAuth = userDefaults.bool(forKey: "isAuth")
-    guard isAuth else {
-      print("[SplashScreen2ViewController] ensurePrivacyDialogHidden - isAuth is false, skipping")
-      return
-    }
-    
-    let hideDialogJS = """
-      (function() {
-        try {
-          // 重新注入 isAuth 状态
-          window.isAuth = true;
-          if (window.iOS) {
-            window.iOS.getIsAuth = function() {
-              return true;
-            };
-          }
-          
-          // 确保弹框被隐藏
-          if (typeof closePrivacyDialog === 'function') {
-            closePrivacyDialog();
-          }
-          if (typeof hidePrivacyDialog === 'function') {
-            hidePrivacyDialog();
-          }
-          
-          // 强制设置弹框状态为隐藏（如果 HTML 中有状态变量）
-          if (typeof setShowModal === 'function') {
-            setShowModal(false);
-          }
-          
-          return true;
-        } catch (e) {
-          console.error('Error hiding privacy dialog:', e);
-          return false;
-        }
-      })();
-    """
-    
-    webView?.evaluateJavaScript(hideDialogJS) { result, error in
-      if let error = error {
-        print("[SplashScreen2ViewController] ensurePrivacyDialogHidden JS error: \\(error)")
-      } else {
-        print("[SplashScreen2ViewController] ensurePrivacyDialogHidden - Privacy dialog hidden successfully")
-      }
-    }
-  }
-  
-  private func handleDisagreePrivacyPolicy() {
-    exit(0)
-  }
-  
-  private func handleOpenPrivacyPolicy(url: String) {
-    DispatchQueue.main.async {
-      let privacyVC = SplashScreen2PrivacyPolicyViewController()
-      privacyVC.url = url
-      self.present(privacyVC, animated: true, completion: nil)
-    }
-  }
-}
-
-extension SplashScreen2ViewController: WKNavigationDelegate {
-  public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-    // 确保 WebView 和 view 都可见
-    webView.isHidden = false
-    webView.alpha = 1.0
-    view.isHidden = false
-    view.alpha = 1.0
-    
-    // 确保在最上层
-    if let superview = view.superview {
-      superview.bringSubviewToFront(view)
-    }
-    
-    // 获取 isAuth 状态并注入到 HTML
-    let isAuth = userDefaults.bool(forKey: "isAuth")
-    
-    // 注入 CSS 确保内容全屏显示，但不覆盖 HTML 中的背景色
-    let css = """
-    (function() {
-      var style = document.createElement('style');
-      style.innerHTML = "html, body { margin: 0 !important; padding: 0 !important; width: 100% !important; height: 100% !important; overflow: hidden !important; position: fixed !important; top: 0 !important; left: 0 !important; }";
-      document.head.appendChild(style);
-    })();
-    """
-    webView.evaluateJavaScript(css, completionHandler: nil)
-    
-    // 延迟执行，确保 HTML 中的函数已经定义
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-      guard let self = self else { return }
-      
-      // 首先检查 HTML 中是否存在隐私协议相关的函数
-      let checkPrivacyFunctionsJS = """
-        (function() {
-          var hasPrivacyFunctions = 
-            typeof checkAuthStatus === 'function' ||
-            typeof showPrivacyDialog === 'function' ||
-            typeof hidePrivacyDialog === 'function' ||
-            typeof closePrivacyDialog === 'function' ||
-            typeof agreePrivacyPolicy === 'function' ||
-            typeof disagreePrivacyPolicy === 'function';
-          return hasPrivacyFunctions;
-        })();
-      """
-      
-      self.webView?.evaluateJavaScript(checkPrivacyFunctionsJS) { result, error in
-        if let error = error {
-          print("[SplashScreen2ViewController] Error checking privacy functions: \\(error)")
-          // 如果检查出错，默认认为没有隐私协议，设置 isAuth 为 true
-          self.userDefaults.set(true, forKey: "isAuth")
-          // 直接启动 React Native
-          SplashScreen2ViewController.appDelegate?.startReactNativeIfNeeded()
-          return
-        }
-        
-        let hasPrivacyFunctions = (result as? Bool) ?? false
-        print("[SplashScreen2ViewController] HTML has privacy functions: \\(hasPrivacyFunctions)")
-        
-        if !hasPrivacyFunctions {
-          // 如果 HTML 中没有隐私协议相关代码，默认 isAuth 为 true
-          print("[SplashScreen2ViewController] No privacy functions found, setting isAuth to true")
-          
-          // 将 isAuth 设置为 true 并保存
-          self.userDefaults.set(true, forKey: "isAuth")
-          
-          // 注入 isAuth=true 到 HTML，并执行 isAuth=true 的逻辑
-          let jsCode = """
-            (function() {
-              console.log('No privacy functions found, setting isAuth to true');
-              // 注入 isAuth 状态为 true
-              window.isAuth = true;
-              window.iOS = {
-                getIsAuth: function() {
-                  return true;
-                }
-              };
-              
-              // 执行 isAuth=true 的逻辑：隐藏弹框（如果存在）
-              if (typeof hidePrivacyDialog === 'function') {
-                console.log('Calling hidePrivacyDialog');
-                hidePrivacyDialog();
-              }
-              if (typeof closePrivacyDialog === 'function') {
-                console.log('Calling closePrivacyDialog');
-                closePrivacyDialog();
-              }
-            })();
-          """
-          self.webView?.evaluateJavaScript(jsCode, completionHandler: { result, error in
-            if let error = error {
-              print("[SplashScreen2ViewController] Error evaluating JavaScript: \\(error)")
-            }
-            // 启动 React Native（isAuth=true 的逻辑）
-            print("[SplashScreen2ViewController] Starting React Native with isAuth=true")
-            SplashScreen2ViewController.appDelegate?.startReactNativeIfNeeded()
-          })
-        } else {
-          // 如果存在隐私协议相关代码，按原来的逻辑处理
-          let jsCode = """
-            (function() {
-              // 注入 isAuth 状态
-              window.isAuth = \\(isAuth);
-              window.iOS = {
-                getIsAuth: function() {
-                  return \\(isAuth);
-                }
-              };
-              
-              // 根据 isAuth 状态决定显隐弹框
-              if (window.isAuth) {
-                // 如果已同意，隐藏弹框
-                if (typeof hidePrivacyDialog === 'function') {
-                  hidePrivacyDialog();
-                }
-              } else {
-                // 如果未同意，显示弹框
-                if (typeof checkAuthStatus === 'function') {
-                  checkAuthStatus();
-                } else if (typeof showPrivacyDialog === 'function') {
-                  showPrivacyDialog();
-                }
-              }
-            })();
-          """
-          self.webView?.evaluateJavaScript(jsCode, completionHandler: { result, error in
-            if let error = error {
-              print("[SplashScreen2ViewController] Error evaluating JavaScript: \\(error)")
-            } else {
-              // 在 JavaScript 执行完成后，根据 isAuth 状态决定是否启动 React Native
-              if isAuth {
-                SplashScreen2ViewController.appDelegate?.startReactNativeIfNeeded()
-              }
-            }
-          })
-        }
-      }
-    }
-  }
-}
-
-extension SplashScreen2ViewController: WKScriptMessageHandler {
-  public func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-    switch message.name {
-    case "agreePrivacyPolicy":
-      handleAgreePrivacyPolicy()
-    case "disagreePrivacyPolicy":
-      handleDisagreePrivacyPolicy()
-    case "openPrivacyPolicy":
-      if let url = message.body as? String {
-        handleOpenPrivacyPolicy(url: url)
-      }
-    default:
-      break
-    }
-  }
-}
-`;
-
-  try {
-    fs.writeFileSync(viewControllerPath, viewControllerContent);
-  } catch (error) {
-    console.error(`[expo-splash-screen2] Failed to generate SplashScreen2ViewController.swift:`, error);
-    throw error;
-  }
-}
-
-/**
- * 生成 SplashScreen2PrivacyPolicyViewController.swift 文件
- */
-function generateSplashScreen2PrivacyPolicyViewController(
-  bundleIdentifier: string,
-  projectRoot: string,
-  iosPath: string,
-  projectName: string
-): void {
-  // 直接生成到 iOS 项目目录
-  const targetDir = path.join(iosPath, projectName);
-  if (!fs.existsSync(targetDir)) {
-    fs.mkdirSync(targetDir, { recursive: true });
-  }
-
-  const viewControllerPath = path.join(targetDir, 'SplashScreen2PrivacyPolicyViewController.swift');
-
-  // 使用模板替换硬编码字符串
-  const viewControllerContent = IOS_TEMPLATES.privacyPolicyViewController;
-
-  try {
-    fs.writeFileSync(viewControllerPath, viewControllerContent);
-  } catch (error) {
-    console.error(`[expo-splash-screen2] Failed to generate SplashScreen2PrivacyPolicyViewController.swift:`, error);
-  }
-}
-
-/**
- * 生成 SplashScreen2Module.swift 文件（iOS 原生模块）
- */
-function generateSplashScreen2Module(
-  bundleIdentifier: string,
-  projectRoot: string,
-  iosPath: string,
-  projectName: string
-): void {
-  // 直接生成到 iOS 项目目录
-  const targetDir = path.join(iosPath, projectName);
-  if (!fs.existsSync(targetDir)) {
-    fs.mkdirSync(targetDir, { recursive: true });
-  }
-
-  const modulePath = path.join(targetDir, 'SplashScreen2Module.swift');
-
-  // 使用模板替换硬编码字符串
-  const moduleContent = IOS_TEMPLATES.splashHtmlModule;
-
-  try {
-    fs.writeFileSync(modulePath, moduleContent);
-  } catch (error) {
-    console.error(`[expo-splash-screen2] Failed to generate SplashScreen2Module.swift:`, error);
-    throw error;
   }
 }
 
@@ -4973,26 +4335,7 @@ function modifyAppDelegate(content: string, backgroundColor: string = '#ffffff')
   return content;
 }
 
-/**
- * 将十六进制颜色转换为 storyboard 需要的格式
- */
-function hexToStoryboardColor(hex: string): { red: number; green: number; blue: number; alpha: number } {
-  // 移除 # 号
-  hex = hex.replace('#', '');
-  
-  // 处理 3 位十六进制颜色
-  if (hex.length === 3) {
-    hex = hex.split('').map(char => char + char).join('');
-  }
-  
-  // 解析 RGB
-  const r = parseInt(hex.substring(0, 2), 16) / 255;
-  const g = parseInt(hex.substring(2, 4), 16) / 255;
-  const b = parseInt(hex.substring(4, 6), 16) / 255;
-  const a = hex.length === 8 ? parseInt(hex.substring(6, 8), 16) / 255 : 1;
-  
-  return { red: r, green: g, blue: b, alpha: a };
-}
+
 
 /**
  * 复制 icon 到 iOS bundle
@@ -5621,83 +4964,7 @@ const withIosSplashScreenStoryboard = (config: any, action: (config: any) => any
   });
 };
 
-/**
- * 注册 SplashScreen.storyboard 的 BaseMod provider
- */
-const withIosSplashScreenStoryboardBaseMod = (config: any) => {
-  return BaseMods.withGeneratedBaseMods(config, {
-    platform: 'ios',
-    saveToInternal: true,
-    skipEmptyMod: false,
-    providers: {
-      [STORYBOARD_MOD_NAME]: BaseMods.provider({
-        isIntrospective: true,
-        async getFilePath({ modRequest }) {
-          return path.join(
-            modRequest.platformProjectRoot,
-            modRequest.projectName || 'MyNewExpoSplashDemo',
-            STORYBOARD_FILE_PATH
-          );
-        },
-        async read(filePath) {
-          try {
-            const contents = await fs.promises.readFile(filePath, 'utf8');
-            try {
-              const { Parser } = require('xml2js');
-              const xml = await new Parser().parseStringPromise(contents);
-              
-              // 验证 XML 结构是否完整
-              if (!xml || !xml.document) {
-                console.warn('[expo-splash-screen2] Invalid XML structure: xml.document is missing, using template');
-                return getTemplateAsync();
-              }
-              
-              // 验证关键结构是否存在
-              if (!xml.document.scenes || !Array.isArray(xml.document.scenes) || !xml.document.scenes[0]) {
-                console.warn('[expo-splash-screen2] Invalid XML structure: scenes missing, using template');
-                return getTemplateAsync();
-              }
-              
-              // 确保 resources 结构完整（修复而不是返回模板）
-              if (!xml.document.resources) {
-                xml.document.resources = [{}];
-              }
-              if (!Array.isArray(xml.document.resources)) {
-                xml.document.resources = [xml.document.resources];
-              }
-              if (!xml.document.resources[0]) {
-                xml.document.resources[0] = {};
-              }
-              
-              // 确保 resources[0] 有必要的属性
-              if (!xml.document.resources[0].image) {
-                xml.document.resources[0].image = [];
-              }
-              if (!xml.document.resources[0].namedColor) {
-                xml.document.resources[0].namedColor = [];
-              }
-              
-              return xml;
-            } catch (parseError) {
-              console.warn(`[expo-splash-screen2] Failed to parse XML: ${parseError}, using template`);
-              return getTemplateAsync();
-            }
-          } catch (readError) {
-            // 文件不存在或读取失败，使用模板
-            console.warn(`[expo-splash-screen2] Failed to read storyboard file: ${readError}, using template`);
-            return getTemplateAsync();
-          }
-        },
-        async write(filePath, { modResults, modRequest: { introspect } }) {
-          if (introspect) {
-            return;
-          }
-          await fs.promises.writeFile(filePath, toString(modResults));
-        }
-      })
-    }
-  });
-};
+
 
 
 /**
@@ -5717,68 +4984,7 @@ function modifyInfoPlist(plist: any): any {
   return plist;
 }
 
-/**
- * 修改 Xcode 项目，添加自定义 Splash 文件引用
- * 参考 expo withXcodeProject 的标准实现
- */
-/**
- * 添加 Swift 源文件到 Xcode 项目
- * 参考 Realm 插件的实现方式
- */
-const addSplashSourceFiles = (
-  proj: XcodeProject,
-  projectName: string,
-  iosPath: string,
-  projectRoot: string
-) => {
-  const sourceFiles = [
-    'SplashScreen2ViewController.swift',
-    'SplashScreen2PrivacyPolicyViewController.swift',
-    'SplashScreen2Module.swift',
-    'SplashScreen2Service.swift'
-  ];
 
-  sourceFiles.forEach((fileName) => {
-    // 文件直接生成在 iOS 项目目录
-    const filePath = path.join(iosPath, projectName, fileName);
-    
-    if (!fs.existsSync(filePath)) {
-      console.warn(`[expo-splash-screen2] Swift file ${fileName} does not exist at ${filePath}, skipping`);
-      return;
-    }
-    
-    // 文件路径相对于 group（与 AppDelegate.swift 等文件保持一致）
-    const relativeFilePath = `${projectName}/${fileName}`;
-    
-    // 检查文件是否已存在（尝试两种路径格式）
-    if (proj.hasFile(relativeFilePath) || proj.hasFile(`../${projectName}/${fileName}`)) {
-      return;
-    }
-
-    try {
-      // 获取 target 和 group
-      const target = proj.getFirstTarget();
-      if (!target) {
-        console.error(`[expo-splash-screen2] Failed to find target for source file ${fileName}`);
-        return;
-      }
-      const groupUuid = proj.findPBXGroupKey({ name: projectName });
-      if (!groupUuid) {
-        console.error(`[expo-splash-screen2] Failed to find group "${projectName}" for source file ${fileName}`);
-        return;
-      }
-      
-      // 使用 proj.addSourceFile 添加源文件
-      proj.addSourceFile(
-        `${projectName}/${fileName}`,
-        { target: target.uuid },
-        groupUuid
-      );
-    } catch (error) {
-      console.error(`[expo-splash-screen2] Error adding source file ${fileName}:`, error);
-    }
-  });
-};
 
 /**
  * 添加资源文件到 Xcode 项目
@@ -6204,6 +5410,12 @@ function setupImageMode(config: any, pluginConfig: SplashHtmlConfig): any {
       stylesJSON.resources.style
     );
 
+    return config;
+  });
+
+  // 修改 AndroidManifest.xml，设置 MainActivity 主题为 @style/AppTheme
+  config = withAndroidManifest(config, (config) => {
+    config.modResults = modifyAndroidManifestForImageMode(config.modResults, packageName);
     return config;
   });
 

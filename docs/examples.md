@@ -121,12 +121,12 @@ Display HTML content in a WebView with full JavaScript/CSS support.
   <tbody><tr>
 <td>
 
-![WebView Android](../assets/demo/webview-a.gif)
+![WebView Android](../assets/demo/webview-a.mp4)
 
 </td>
 <td>
 
-![WebView iOS](../assets/demo/webview-i.gif)
+![WebView iOS](../assets/demo/webview-i.mp4)
 
 </td>
     </tr>
@@ -142,12 +142,12 @@ Display a full-screen background image that scales to cover the entire screen.
   <tbody><tr>
 <td>
 
-![ResponsiveImage Android](../assets/demo/reponsiveimg-a.gif)
+![ResponsiveImage Android](../assets/demo/responsive-a.mp4)
 
 </td>
 <td>
 
-![ResponsiveImage iOS](../assets/demo/reponsive-i.gif)
+![ResponsiveImage iOS](../assets/demo/responsive-i.mp4)
 
 </td>
     </tr>
@@ -163,12 +163,12 @@ Display a centered image with fixed width, maintaining aspect ratio. Supports da
   <tbody><tr>
 <td>
 
-![Normal Android](../assets/demo/normal-a.gif)
+![Normal Android](../assets/demo/normal-a.mp4)
 
 </td>
 <td>
 
-![Normal iOS](../assets/demo/normal-i.gif)
+![Normal iOS](../assets/demo/normal-i.mp4)
 
 </td>
     </tr>
