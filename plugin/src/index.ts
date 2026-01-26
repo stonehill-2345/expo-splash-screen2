@@ -98,6 +98,7 @@ function executeBuildSplashWeb(projectRoot: string): void {
 async function bundleSplashWeb(projectRoot: string): Promise<string> {
   const sourceDir = 'expo-splash-web';
   const dir = path.join(projectRoot, sourceDir);
+  console.log('[expo-splash-screen8] bundleSplashWeb dir:', dir);
   
   // Check if directory exists
   if (!fs.existsSync(dir)) {
@@ -983,8 +984,10 @@ function generateCustomSplashActivity(
   packageName: string,
   projectRoot: string,
   androidMainPath: string,
-  backgroundColor: string
+  backgroundColor: string,
+  edgeToEdgeEnabled?: boolean
 ): void {
+  console.log(`[expo-splash-screen5]  666:`, edgeToEdgeEnabled);
   const javaDir = path.join(
     androidMainPath,
     'java',
@@ -998,11 +1001,21 @@ function generateCustomSplashActivity(
   const activityPath = path.join(javaDir, `SplashScreen2Activity.kt`);
 
   // Use template to replace hardcoded strings
-  const activityContent = replaceTemplatePlaceholders(ANDROID_TEMPLATES.customSplashActivity, {
+  let activityContent = replaceTemplatePlaceholders(ANDROID_TEMPLATES.customSplashActivity, {
     packageName,
     activityName: CUSTOM_SPLASH_ACTIVITY_NAME,
     backgroundColor,
   });
+
+
+    console.error(`[expo-splash-screen3]  8888:`, edgeToEdgeEnabled);
+  // If edgeToEdgeEnabled is true, remove WindowCompat import and call
+  if (edgeToEdgeEnabled === true) {
+    // Remove import androidx.core.view.WindowCompat
+    activityContent = activityContent.replace(/import androidx\.core\.view\.WindowCompat\s*\n/, '');
+    // Remove WindowCompat.setDecorFitsSystemWindows(window, false) and its comment
+    activityContent = activityContent.replace(/\s*\/\/\s*Let content extend below status bar and navigation bar instead of hiding them\s*\n\s*WindowCompat\.setDecorFitsSystemWindows\(window,\s*false\)\s*\n/, '');
+  }
 
   try {
     fs.writeFileSync(activityPath, activityContent);
@@ -1019,7 +1032,8 @@ function generateCustomSplashActivityForBlendMode(
   packageName: string,
   projectRoot: string,
   androidMainPath: string,
-  imageResourceName: string
+  imageResourceName: string,
+  edgeToEdgeEnabled?: boolean
 ): void {
   const javaDir = path.join(
     androidMainPath,
@@ -1034,11 +1048,19 @@ function generateCustomSplashActivityForBlendMode(
   const activityPath = path.join(javaDir, `SplashScreen2Activity.kt`);
 
   // Use template to generate activity content
-  const activityContent = replaceTemplatePlaceholders(ANDROID_TEMPLATES.customSplashActivity, {
+  let activityContent = replaceTemplatePlaceholders(ANDROID_TEMPLATES.customSplashActivity, {
     packageName,
     activityName: CUSTOM_SPLASH_ACTIVITY_NAME,
     backgroundColor: '#ffffff', // Not used in blend mode, but required by template
   });
+
+  // If edgeToEdgeEnabled is true, remove WindowCompat import and call
+  if (edgeToEdgeEnabled === true) {
+    // Remove import androidx.core.view.WindowCompat
+    activityContent = activityContent.replace(/import androidx\.core\.view\.WindowCompat\s*\n/, '');
+    // Remove WindowCompat.setDecorFitsSystemWindows(window, false) and its comment
+    activityContent = activityContent.replace(/\s*\/\/\s*Let content extend below status bar and navigation bar instead of hiding them\s*\n\s*WindowCompat\.setDecorFitsSystemWindows\(window,\s*false\)\s*\n/, '');
+  }
 
   try {
     fs.writeFileSync(activityPath, activityContent);
@@ -1708,7 +1730,7 @@ function modifyMainActivityForNormalMode(
 /**
  * Modify MainActivity.kt, add actionStart static method and WebView container logic
  */
-function modifyMainActivity(content: string, packageName: string, backgroundColor: string): string {
+function modifyMainActivity(content: string, packageName: string, backgroundColor: string, edgeToEdgeEnabled?: boolean): string {
   const classMatch = content.match(/class\s+MainActivity\s*[^:]*:/);
   if (!classMatch) {
     console.warn('[expo-splash-screen2] MainActivity class not found');
@@ -1722,6 +1744,8 @@ function modifyMainActivity(content: string, packageName: string, backgroundColo
  
   
   // Check if these imports are already included (check all imports that need to be added)
+  // WindowCompat import is only needed if edgeToEdgeEnabled is false or undefined
+  const needsWindowCompat = edgeToEdgeEnabled !== true;
   let hasImports = content.includes('import android.os.Build') &&
                    content.includes('import android.os.Handler') && 
                    content.includes('import android.os.Looper') &&
@@ -1729,9 +1753,14 @@ function modifyMainActivity(content: string, packageName: string, backgroundColo
                    content.includes('import android.view.ViewGroup') &&
                    content.includes('import android.webkit.WebView') &&
                    content.includes('import android.webkit.WebViewClient') &&
-                   content.includes('import androidx.core.view.WindowCompat');
+                   (!needsWindowCompat || content.includes('import androidx.core.view.WindowCompat'));
   
   let modifiedContent = content;
+  
+  // Remove WindowCompat import if edgeToEdgeEnabled is true
+  if (edgeToEdgeEnabled === true && content.includes('import androidx.core.view.WindowCompat')) {
+    modifiedContent = modifiedContent.replace(/import androidx\.core\.view\.WindowCompat\s*\n/, '');
+  }
   
   // Add imports (only add missing imports)
   if (!hasImports) {
@@ -1744,10 +1773,14 @@ function modifyMainActivity(content: string, packageName: string, backgroundColo
       'import android.view.ViewGroup',
       'import android.webkit.WebView',
       'import android.webkit.WebViewClient',
-      'import androidx.core.view.WindowCompat'
     ];
     
-    const missingImports = importsToAddList.filter(imp => !content.includes(imp));
+    // Only add WindowCompat import if edgeToEdgeEnabled is false or undefined
+    if (needsWindowCompat) {
+      importsToAddList.push('import androidx.core.view.WindowCompat');
+    }
+    
+    const missingImports = importsToAddList.filter(imp => !modifiedContent.includes(imp));
     
     if (missingImports.length > 0) {
       const lastImportIndex = modifiedContent.lastIndexOf('import ');
@@ -1806,10 +1839,13 @@ function modifyMainActivity(content: string, packageName: string, backgroundColo
     const hasHandlerPost = onCreateContent.includes('Handler(Looper.getMainLooper()).post');
     const codeBlockExists = hasWindowCompat && hasSetupWebViewContainer && hasHandlerPost;
     
-    if (codeBlockExists) {
-      // Remove the complete code block by finding the start and end positions
-      // Start: Find the line with "Let content extend below status bar" or "WindowCompat.setDecorFitsSystemWindows"
-      // End: Find the closing brace of the Handler block that contains setupWebViewContainer
+    // If edgeToEdgeEnabled is true and WindowCompat call exists, remove only the WindowCompat line
+    if (edgeToEdgeEnabled === true && hasWindowCompat) {
+      // Remove only WindowCompat line and its comment, keep other window settings
+      cleanedOnCreateContent = cleanedOnCreateContent.replace(/\s*\/\/\s*Let content extend below status bar and navigation bar\s*\n\s*WindowCompat\.setDecorFitsSystemWindows\(window,\s*false\)\s*\n\s*/, '');
+    } else if (codeBlockExists && edgeToEdgeEnabled !== true) {
+      // If edgeToEdgeEnabled is false/undefined and code block exists, remove the complete code block
+      // Then add only WindowCompat and window settings (without Handler.post and setupWebViewContainer)
       const lines = onCreateContent.split('\n');
       const filteredLines: string[] = [];
       let inCodeBlock = false;
@@ -1857,6 +1893,32 @@ function modifyMainActivity(content: string, packageName: string, backgroundColo
       }
       
       cleanedOnCreateContent = filteredLines.join('\n');
+      
+      // After removing the code block, add only WindowCompat and window settings (without Handler.post and setupWebViewContainer)
+      const superOnCreateIndex = cleanedOnCreateContent.indexOf('super.onCreate');
+      if (superOnCreateIndex !== -1) {
+        // Find the end of super.onCreate line (could be on same line as { or on next line)
+        let superOnCreateEndIndex = cleanedOnCreateContent.indexOf('\n', superOnCreateIndex);
+        if (superOnCreateEndIndex === -1) {
+          // If no newline found, find the closing brace or end of line
+          superOnCreateEndIndex = cleanedOnCreateContent.length;
+        } else {
+          superOnCreateEndIndex = superOnCreateEndIndex + 1; // Include the newline
+        }
+        
+        // Only add WindowCompat and window settings (with isNavigationBarContrastEnforced), not Handler.post and setupWebViewContainer
+        const windowSettingsCode = `
+    WindowCompat.setDecorFitsSystemWindows(window, false)
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+      window.isNavigationBarContrastEnforced = false
+    }
+    window.statusBarColor = android.graphics.Color.TRANSPARENT
+    window.navigationBarColor = android.graphics.Color.TRANSPARENT`;
+        
+        cleanedOnCreateContent = cleanedOnCreateContent.substring(0, superOnCreateEndIndex) +
+                         windowSettingsCode + '\n' +
+                         cleanedOnCreateContent.substring(superOnCreateEndIndex);
+      }
     }
     
     // Remove setTheme(R.style.AppTheme) call and its comments
@@ -1902,23 +1964,70 @@ function modifyMainActivity(content: string, packageName: string, backgroundColo
     const hasSetupWebViewContainer = onCreateContent.includes('setupWebViewContainer');
     const hasHandlerPost = onCreateContent.includes('Handler(Looper.getMainLooper()).post');
     
-    // Only insert if the complete code block doesn't exist
-    // All three markers should be present together to indicate the code block is already inserted
+    // Check if the complete code block exists (all three markers together)
     const codeBlockExists = hasWindowCompat && hasSetupWebViewContainer && hasHandlerPost;
     
-    if (!codeBlockExists) {
+    // Check if only WindowCompat and window settings exist (without Handler.post and setupWebViewContainer)
+    // This happens when codeBlockExists && edgeToEdgeEnabled !== true, we removed the code block and added only WindowCompat and window settings
+    const hasOnlyWindowSettings = hasWindowCompat && !hasSetupWebViewContainer && !hasHandlerPost;
+    
+    // If edgeToEdgeEnabled is false/undefined and WindowCompat is missing, we need to add it
+    // If edgeToEdgeEnabled is true and WindowCompat exists, we need to remove it (handled in earlier code)
+    // If hasOnlyWindowSettings is true, we already added WindowCompat and window settings, don't add Handler.post and setupWebViewContainer
+    const needsWindowCompat = edgeToEdgeEnabled !== true;
+    // Only add complete code block if:
+    // 1. Complete code block doesn't exist (!codeBlockExists)
+    // 2. We don't have only window settings (!hasOnlyWindowSettings) - this means we need to add Handler.post and setupWebViewContainer
+    // 3. We need WindowCompat and don't have it, OR we need to add setupWebViewContainer and Handler.post
+    const shouldAddCode = !codeBlockExists && !hasOnlyWindowSettings && (needsWindowCompat && !hasWindowCompat || (!hasSetupWebViewContainer || !hasHandlerPost));
+    
+    if (shouldAddCode) {
+      // Before adding, remove any existing window color settings and WindowCompat that might conflict
+      // This ensures we don't have duplicate window.statusBarColor, window.navigationBarColor, or WindowCompat
+      let cleanedOnCreateForAdd = onCreateContent;
+      const hasExistingWindowColors = cleanedOnCreateForAdd.includes('window.statusBarColor') || cleanedOnCreateForAdd.includes('window.navigationBarColor');
+      const hasExistingWindowCompat = cleanedOnCreateForAdd.includes('WindowCompat.setDecorFitsSystemWindows');
+      if (hasExistingWindowColors) {
+        // Remove existing window color settings and related code
+        cleanedOnCreateForAdd = cleanedOnCreateForAdd.replace(/\s*if\s*\(Build\.VERSION\.SDK_INT\s*>=\s*Build\.VERSION_CODES\.Q\)\s*\{\s*\n\s*window\.isNavigationBarContrastEnforced\s*=\s*false\s*\n\s*\}\s*\n?/g, '');
+        cleanedOnCreateForAdd = cleanedOnCreateForAdd.replace(/\s*window\.statusBarColor\s*=\s*android\.graphics\.Color\.TRANSPARENT\s*\n?/g, '');
+        cleanedOnCreateForAdd = cleanedOnCreateForAdd.replace(/\s*window\.navigationBarColor\s*=\s*android\.graphics\.Color\.TRANSPARENT\s*\n?/g, '');
+      }
+      if (hasExistingWindowCompat) {
+        // Remove existing WindowCompat call and its comment
+        cleanedOnCreateForAdd = cleanedOnCreateForAdd.replace(/\s*\/\/\s*Let content extend below status bar and navigation bar\s*\n\s*WindowCompat\.setDecorFitsSystemWindows\(window,\s*false\)\s*\n\s*/, '');
+      }
+      
       // Add setupWebViewContainer call after super.onCreate
-      const superOnCreateIndex = onCreateContent.indexOf('super.onCreate');
+      const superOnCreateIndex = cleanedOnCreateForAdd.indexOf('super.onCreate');
       if (superOnCreateIndex !== -1) {
-        const superOnCreateEndIndex = onCreateContent.indexOf('\n', superOnCreateIndex);
-        if (superOnCreateEndIndex !== -1) {
-          // Use template to replace hardcoded strings
-          const setupCall = ANDROID_TEMPLATES.mainActivityOnCreateCode;
-          
-          modifiedContent = modifiedContent.substring(0, onCreateIndex + superOnCreateEndIndex + 1) +
-                           setupCall + '\n' +
-                           modifiedContent.substring(onCreateIndex + superOnCreateEndIndex + 1);
+        // Find the end of super.onCreate line (could be on same line as { or on next line)
+        let superOnCreateEndIndex = cleanedOnCreateForAdd.indexOf('\n', superOnCreateIndex);
+        if (superOnCreateEndIndex === -1) {
+          // If no newline found, find the closing brace or end of line
+          superOnCreateEndIndex = cleanedOnCreateForAdd.length;
+        } else {
+          superOnCreateEndIndex = superOnCreateEndIndex + 1; // Include the newline
         }
+        
+        // Use template to replace hardcoded strings
+        let setupCall = ANDROID_TEMPLATES.mainActivityOnCreateCode;
+        
+        // If edgeToEdgeEnabled is true, remove WindowCompat call but keep other window settings and Handler.post
+        if (edgeToEdgeEnabled === true) {
+          // Remove WindowCompat line and its comment, keep other window settings
+          setupCall = setupCall.replace(/\s*\/\/\s*Let content extend below status bar and navigation bar\s*\n\s*WindowCompat\.setDecorFitsSystemWindows\(window,\s*false\)\s*\n\s*/, '');
+        }
+        
+        // Replace the onCreate content with cleaned version + new code
+        const newOnCreateContent = cleanedOnCreateForAdd.substring(0, superOnCreateEndIndex) +
+                         setupCall + '\n' +
+                         cleanedOnCreateForAdd.substring(superOnCreateEndIndex);
+        
+        // Replace the entire onCreate method in modifiedContent
+        modifiedContent = modifiedContent.substring(0, onCreateIndex) + 
+                         newOnCreateContent + 
+                         modifiedContent.substring(onCreateEndIndex);
       }
     }
   }
@@ -2061,7 +2170,7 @@ function modifyMainActivity(content: string, packageName: string, backgroundColo
  * Modify MainActivity.kt for Blend mode
  * Blend mode: ImageView container (.9图背景) + WebView container (透明背景，在ImageView之上)
  */
-function modifyMainActivityForBlendMode(content: string, packageName: string, imageResourceName: string): string {
+function modifyMainActivityForBlendMode(content: string, packageName: string, imageResourceName: string, edgeToEdgeEnabled?: boolean): string {
   // Check if blend mode code already exists
   if (content.includes('splashImageViewContainer') && content.includes('setupSplashImageView') && 
       content.includes('onContentChanged') && content.includes('setupWebViewContainer')) {
@@ -2069,7 +2178,7 @@ function modifyMainActivityForBlendMode(content: string, packageName: string, im
   }
 
   // Use modifyMainActivity as base (this adds WebView container logic)
-  let modifiedContent = modifyMainActivity(content, packageName, '#ffffff'); // backgroundColor not used in blend mode
+  let modifiedContent = modifyMainActivity(content, packageName, '#ffffff', edgeToEdgeEnabled); // backgroundColor not used in blend mode
   
   // Remove .9 patch image as container background from WebView container (keep it transparent)
   // Find and remove the background setting code if it exists
@@ -2107,9 +2216,103 @@ function modifyMainActivityForBlendMode(content: string, packageName: string, im
     const onCreateContent = modifiedContent.substring(onCreateIndex, onCreateEndIndex);
     let cleanedOnCreateContent = onCreateContent;
     
-    // Remove setupWebViewContainer call and related code from onCreate
-    const setupWebViewRegex = /(\s*\/\/\s*[^\n]*\n)*\s*(WindowCompat\.setDecorFitsSystemWindows|setupWebViewContainer|Handler\s*\(\s*Looper\.getMainLooper\(\)\s*\)\.post)[\s\S]*?\}\s*/g;
-    cleanedOnCreateContent = cleanedOnCreateContent.replace(setupWebViewRegex, '');
+    // Check if WindowCompat and window settings exist
+    const hasWindowCompat = onCreateContent.includes('WindowCompat.setDecorFitsSystemWindows');
+    const hasSetupWebViewContainer = onCreateContent.includes('setupWebViewContainer');
+    const hasHandlerPost = onCreateContent.includes('Handler(Looper.getMainLooper()).post');
+    
+    // Remove setupWebViewContainer call and Handler.post from onCreate, but keep WindowCompat and window settings if edgeToEdgeEnabled !== true
+    if (hasSetupWebViewContainer || hasHandlerPost) {
+      // Remove Handler.post and setupWebViewContainer, but preserve WindowCompat and window settings
+      const lines = onCreateContent.split('\n');
+      const filteredLines: string[] = [];
+      let inHandlerBlock = false;
+      let handlerBraceCount = 0;
+      let foundHandlerStart = false;
+      
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        
+        // Check if this line starts the Handler block
+        if (!inHandlerBlock && line.includes('Handler(Looper.getMainLooper()).post')) {
+          inHandlerBlock = true;
+          foundHandlerStart = true;
+          continue; // Skip this line
+        }
+        
+        if (inHandlerBlock) {
+          // Count braces to find the end of Handler block
+          handlerBraceCount += (line.match(/\{/g) || []).length;
+          handlerBraceCount -= (line.match(/\}/g) || []).length;
+          
+          // If we've closed all braces (Handler block is complete), end the Handler block
+          if (handlerBraceCount <= 0) {
+            inHandlerBlock = false;
+            handlerBraceCount = 0;
+            foundHandlerStart = false;
+            continue; // Skip this line (the closing brace of Handler)
+          }
+          
+          // Skip this line (it's part of the Handler block)
+          continue;
+        }
+        
+        // Remove setupWebViewContainer call (but keep other lines)
+        if (line.includes('setupWebViewContainer')) {
+          continue; // Skip this line
+        }
+        
+        // Keep all other lines (including WindowCompat and window settings)
+        filteredLines.push(line);
+      }
+      
+      cleanedOnCreateContent = filteredLines.join('\n');
+    }
+    
+    // If edgeToEdgeEnabled !== true, ensure we have the three lines: WindowCompat and window settings
+    if (edgeToEdgeEnabled !== true) {
+      const hasWindowCompatAfterClean = cleanedOnCreateContent.includes('WindowCompat.setDecorFitsSystemWindows');
+      const hasStatusBarColor = cleanedOnCreateContent.includes('window.statusBarColor');
+      const hasNavigationBarColor = cleanedOnCreateContent.includes('window.navigationBarColor');
+      
+      // Check if we have isNavigationBarContrastEnforced
+      const hasIsNavigationBarContrastEnforced = cleanedOnCreateContent.includes('isNavigationBarContrastEnforced');
+      
+      // If we don't have all required code, add them
+      if (!hasWindowCompatAfterClean || !hasStatusBarColor || !hasNavigationBarColor || !hasIsNavigationBarContrastEnforced) {
+        // Remove any existing window settings and WindowCompat to avoid duplicates
+        cleanedOnCreateContent = cleanedOnCreateContent.replace(/\s*\/\/\s*Let content extend below status bar and navigation bar\s*\n\s*/g, '');
+        cleanedOnCreateContent = cleanedOnCreateContent.replace(/\s*WindowCompat\.setDecorFitsSystemWindows\(window,\s*false\)\s*\n?/g, '');
+        cleanedOnCreateContent = cleanedOnCreateContent.replace(/\s*if\s*\(Build\.VERSION\.SDK_INT\s*>=\s*Build\.VERSION_CODES\.Q\)\s*\{\s*\n\s*window\.isNavigationBarContrastEnforced\s*=\s*false\s*\n\s*\}\s*\n?/g, '');
+        cleanedOnCreateContent = cleanedOnCreateContent.replace(/\s*window\.statusBarColor\s*=\s*android\.graphics\.Color\.TRANSPARENT\s*\n?/g, '');
+        cleanedOnCreateContent = cleanedOnCreateContent.replace(/\s*window\.navigationBarColor\s*=\s*android\.graphics\.Color\.TRANSPARENT\s*\n?/g, '');
+        
+        // Add the window settings code (including isNavigationBarContrastEnforced) after super.onCreate
+        const superOnCreateIndex = cleanedOnCreateContent.indexOf('super.onCreate');
+        if (superOnCreateIndex !== -1) {
+          // Find the end of super.onCreate line (could be on same line as { or on next line)
+          let superOnCreateEndIndex = cleanedOnCreateContent.indexOf('\n', superOnCreateIndex);
+          if (superOnCreateEndIndex === -1) {
+            // If no newline found, find the closing brace or end of line
+            superOnCreateEndIndex = cleanedOnCreateContent.length;
+          } else {
+            superOnCreateEndIndex = superOnCreateEndIndex + 1; // Include the newline
+          }
+          
+          const windowSettingsCode = `
+    WindowCompat.setDecorFitsSystemWindows(window, false)
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+      window.isNavigationBarContrastEnforced = false
+    }
+    window.statusBarColor = android.graphics.Color.TRANSPARENT
+    window.navigationBarColor = android.graphics.Color.TRANSPARENT`;
+          
+          cleanedOnCreateContent = cleanedOnCreateContent.substring(0, superOnCreateEndIndex) +
+                           windowSettingsCode + '\n' +
+                           cleanedOnCreateContent.substring(superOnCreateEndIndex);
+        }
+      }
+    }
     
     if (cleanedOnCreateContent !== onCreateContent) {
       modifiedContent = modifiedContent.substring(0, onCreateIndex) + 
@@ -5960,9 +6163,12 @@ function setupWebViewMode(config: any, pluginConfig: SplashHtmlConfig): any {
       // WebView 模式目前不支持 dark 配置，所以只设置浅色模式背景色
       createSplashColorsXml(androidMainPath, pluginConfig.backgroundColor || '#ffffff');
 
+      // 读取 edgeToEdgeEnabled 配置
+      const edgeToEdgeEnabled = config.android?.edgeToEdgeEnabled;
+
       // 生成 CustomSplashActivity
       if (projectRoot) {
-        generateCustomSplashActivity(packageName, projectRoot, androidMainPath, pluginConfig.backgroundColor || '#ffffff');
+        generateCustomSplashActivity(packageName, projectRoot, androidMainPath, pluginConfig.backgroundColor || '#ffffff', edgeToEdgeEnabled);
         generatePrivacyPolicyActivity(packageName, projectRoot, androidMainPath);
       } else {
         console.warn('[expo-splash-screen2] projectRoot is undefined, skipping activity generation');
@@ -5979,10 +6185,12 @@ function setupWebViewMode(config: any, pluginConfig: SplashHtmlConfig): any {
 
   // 3. 修改 MainActivity.kt
   config = withMainActivity(config, (config) => {
+    const edgeToEdgeEnabled = config.android?.edgeToEdgeEnabled;
     config.modResults.contents = modifyMainActivity(
       config.modResults.contents,
       packageName,
-      pluginConfig.backgroundColor || '#ffffff'
+      pluginConfig.backgroundColor || '#ffffff',
+      edgeToEdgeEnabled
     );
     return config;
   });
@@ -6600,9 +6808,12 @@ function setupBlendMode(config: any, pluginConfig: SplashHtmlConfig): any {
       // 创建颜色资源文件（用于系统启动画面）
       createSplashColorsXml(androidMainPath, pluginConfig.backgroundColor || '#ffffff');
 
+      // 读取 edgeToEdgeEnabled 配置
+      const edgeToEdgeEnabled = config.android?.edgeToEdgeEnabled;
+
       // 生成 CustomSplashActivity（WebView容器背景使用.9图）
       if (projectRoot) {
-        generateCustomSplashActivityForBlendMode(packageName, projectRoot, androidMainPath, imageResourceName);
+        generateCustomSplashActivityForBlendMode(packageName, projectRoot, androidMainPath, imageResourceName, edgeToEdgeEnabled);
         generatePrivacyPolicyActivity(packageName, projectRoot, androidMainPath);
       } else {
         console.warn('[expo-splash-screen2] projectRoot is undefined, skipping activity generation');
@@ -6619,10 +6830,12 @@ function setupBlendMode(config: any, pluginConfig: SplashHtmlConfig): any {
 
   // 修改 MainActivity.kt（WebView容器背景使用.9图）
   config = withMainActivity(config, (config) => {
+    const edgeToEdgeEnabled = config.android?.edgeToEdgeEnabled;
     config.modResults.contents = modifyMainActivityForBlendMode(
       config.modResults.contents,
       packageName,
-      savedImageResourceName
+      savedImageResourceName,
+      edgeToEdgeEnabled
     );
     return config;
   });
