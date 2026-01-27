@@ -1,6 +1,6 @@
 {
   "name": "expo-splash-screen2",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "description": "Enhance the development experience on the basis of expo-splash-screen  with web and .9",
   "main": "build",
   "types": "build",
@@ -17,6 +17,7 @@
     "expo-module.config.json",
     "scripts",
     "expo-splash-web",
+    "!tests",
     "!**/__tests__",
     "!**/__fixtures__",
     "!**/__mocks__",
@@ -71,6 +72,7 @@
     "@types/xml2js": "^0.4.14",
     "expo-module-scripts": "^3.0.0",
     "expo-modules-core": "*",
+    "js-yaml": "^4.1.1",
     "standard-version": "^9.5.0",
     "typescript": "^5.0.0"
   },

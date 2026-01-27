@@ -16,6 +16,7 @@ CHANGELOG.md
 .DS_Store
 
 # 测试文件
+tests/
 **/__tests__/
 **/__fixtures__/
 **/__mocks__/

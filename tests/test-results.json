@@ -1,0 +1,785 @@
+[
+  {
+    "id": "webview_001",
+    "name": "Basic WebView Configuration",
+    "suite": "WebView Mode Tests",
+    "mode": "webview",
+    "status": "passed",
+    "steps": [
+      {
+        "name": "Setup test project",
+        "action": "create_project",
+        "status": "success"
+      },
+      {
+        "name": "Configure app.json",
+        "action": "configure_plugin",
+        "status": "success"
+      },
+      {
+        "name": "Run prebuild",
+        "action": "run_prebuild",
+        "status": "success"
+      },
+      {
+        "name": "Verify iOS files",
+        "action": "verify_files",
+        "status": "success"
+      },
+      {
+        "name": "Verify Android files",
+        "action": "verify_files",
+        "status": "success"
+      },
+      {
+        "name": "Build iOS app",
+        "action": "build_app",
+        "status": "success"
+      },
+      {
+        "name": "Build Android app",
+        "action": "build_app",
+        "status": "success"
+      }
+    ],
+    "assertions": [
+      {
+        "type": "file_exists",
+        "status": "success"
+      },
+      {
+        "type": "no_errors",
+        "status": "success"
+      }
+    ],
+    "errors": []
+  },
+  {
+    "id": "webview_002",
+    "name": "Custom HTML Path",
+    "suite": "WebView Mode Tests",
+    "mode": "webview",
+    "status": "passed",
+    "steps": [
+      {
+        "name": "Setup test project",
+        "action": "create_project",
+        "status": "success"
+      },
+      {
+        "name": "Create custom HTML file",
+        "action": "create_file",
+        "status": "success"
+      },
+      {
+        "name": "Configure plugin",
+        "action": "configure_plugin",
+        "status": "success"
+      },
+      {
+        "name": "Run prebuild",
+        "action": "run_prebuild",
+        "status": "success"
+      },
+      {
+        "name": "Verify custom HTML copied",
+        "action": "verify_files",
+        "status": "success"
+      },
+      {
+        "name": "Verify custom content",
+        "action": "verify_file_content",
+        "status": "success"
+      }
+    ],
+    "assertions": [
+      {
+        "type": "file_content",
+        "status": "success"
+      }
+    ],
+    "errors": []
+  },
+  {
+    "id": "webview_003",
+    "name": "WebView JavaScript Bridge",
+    "suite": "WebView Mode Tests",
+    "mode": "webview",
+    "status": "passed",
+    "steps": [
+      {
+        "name": "Setup project",
+        "action": "create_project",
+        "status": "success"
+      },
+      {
+        "name": "Configure plugin",
+        "action": "configure_plugin",
+        "status": "success"
+      },
+      {
+        "name": "Test preventAutoHideAsync",
+        "action": "test_api_function",
+        "status": "success"
+      },
+      {
+        "name": "Test hideAsync",
+        "action": "test_api_function",
+        "status": "success"
+      }
+    ],
+    "assertions": [],
+    "errors": []
+  },
+  {
+    "id": "responsive_001",
+    "name": "Basic ResponsiveImage Configuration",
+    "suite": "ResponsiveImage Mode Tests",
+    "mode": "responsiveImage",
+    "status": "passed",
+    "steps": [
+      {
+        "name": "Setup test project",
+        "action": "create_project",
+        "status": "success"
+      },
+      {
+        "name": "Add test image",
+        "action": "copy_file",
+        "status": "success"
+      },
+      {
+        "name": "Configure plugin",
+        "action": "configure_plugin",
+        "status": "success"
+      },
+      {
+        "name": "Run prebuild",
+        "action": "run_prebuild",
+        "status": "success"
+      },
+      {
+        "name": "Verify iOS image copied",
+        "action": "verify_files",
+        "status": "success"
+      },
+      {
+        "name": "Verify Android image copied",
+        "action": "verify_files",
+        "status": "success"
+      },
+      {
+        "name": "Build iOS app",
+        "action": "build_app",
+        "status": "success"
+      },
+      {
+        "name": "Build Android app",
+        "action": "build_app",
+        "status": "success"
+      }
+    ],
+    "assertions": [
+      {
+        "type": "file_exists",
+        "status": "success"
+      },
+      {
+        "type": "no_errors",
+        "status": "success"
+      }
+    ],
+    "errors": []
+  },
+  {
+    "id": "responsive_002",
+    "name": "Android .9 Patch Image Support",
+    "suite": "ResponsiveImage Mode Tests",
+    "mode": "responsiveImage",
+    "status": "passed",
+    "steps": [
+      {
+        "name": "Setup project",
+        "action": "create_project",
+        "status": "success"
+      },
+      {
+        "name": "Add .9.png image",
+        "action": "copy_file",
+        "status": "success"
+      },
+      {
+        "name": "Configure plugin",
+        "action": "configure_plugin",
+        "status": "success"
+      },
+      {
+        "name": "Run prebuild",
+        "action": "run_prebuild",
+        "status": "success"
+      },
+      {
+        "name": "Verify .9.png recognized",
+        "action": "verify_files",
+        "status": "success"
+      },
+      {
+        "name": "Build Android app",
+        "action": "build_app",
+        "status": "success"
+      },
+      {
+        "name": "Verify .9.png file content",
+        "action": "verify_file_content",
+        "status": "success"
+      }
+    ],
+    "assertions": [
+      {
+        "type": "file_exists",
+        "status": "success"
+      }
+    ],
+    "errors": []
+  },
+  {
+    "id": "normal_001",
+    "name": "Basic Normal Mode Configuration",
+    "suite": "Normal Mode Tests",
+    "mode": "normal",
+    "status": "passed",
+    "steps": [
+      {
+        "name": "Setup project",
+        "action": "create_project",
+        "status": "success"
+      },
+      {
+        "name": "Add icon image",
+        "action": "copy_file",
+        "status": "success"
+      },
+      {
+        "name": "Configure plugin",
+        "action": "configure_plugin",
+        "status": "success"
+      },
+      {
+        "name": "Run prebuild",
+        "action": "run_prebuild",
+        "status": "success"
+      },
+      {
+        "name": "Verify iOS configuration",
+        "action": "verify_files",
+        "status": "success"
+      },
+      {
+        "name": "Verify Android configuration",
+        "action": "verify_files",
+        "status": "success"
+      },
+      {
+        "name": "Build iOS app",
+        "action": "build_app",
+        "status": "success"
+      },
+      {
+        "name": "Build Android app",
+        "action": "build_app",
+        "status": "success"
+      }
+    ],
+    "assertions": [
+      {
+        "type": "file_exists",
+        "status": "success"
+      },
+      {
+        "type": "no_errors",
+        "status": "success"
+      }
+    ],
+    "errors": []
+  },
+  {
+    "id": "normal_002",
+    "name": "Custom Image Width",
+    "suite": "Normal Mode Tests",
+    "mode": "normal",
+    "status": "passed",
+    "steps": [
+      {
+        "name": "Setup project",
+        "action": "create_project",
+        "status": "success"
+      },
+      {
+        "name": "Add icon image",
+        "action": "copy_file",
+        "status": "success"
+      },
+      {
+        "name": "Configure with custom width",
+        "action": "configure_plugin",
+        "status": "success"
+      },
+      {
+        "name": "Run prebuild and verify",
+        "action": "run_prebuild",
+        "status": "success"
+      },
+      {
+        "name": "Verify Android image exists",
+        "action": "verify_files",
+        "status": "success"
+      }
+    ],
+    "assertions": [
+      {
+        "type": "file_exists",
+        "status": "success"
+      }
+    ],
+    "errors": []
+  },
+  {
+    "id": "normal_003",
+    "name": "Dark Mode Support",
+    "suite": "Normal Mode Tests",
+    "mode": "normal",
+    "status": "passed",
+    "steps": [
+      {
+        "name": "Setup project",
+        "action": "create_project",
+        "status": "success"
+      },
+      {
+        "name": "Add light image",
+        "action": "copy_file",
+        "status": "success"
+      },
+      {
+        "name": "Add dark image",
+        "action": "copy_file",
+        "status": "success"
+      },
+      {
+        "name": "Configure with dark mode",
+        "action": "configure_plugin",
+        "status": "success"
+      },
+      {
+        "name": "Run prebuild",
+        "action": "run_prebuild",
+        "status": "success"
+      },
+      {
+        "name": "Verify iOS light mode assets",
+        "action": "verify_files",
+        "status": "success"
+      },
+      {
+        "name": "Verify Android light mode resources",
+        "action": "verify_files",
+        "status": "success"
+      }
+    ],
+    "assertions": [
+      {
+        "type": "file_exists",
+        "status": "success"
+      }
+    ],
+    "errors": []
+  },
+  {
+    "id": "blend_001",
+    "name": "Basic Blend Mode Configuration",
+    "suite": "Blend Mode Tests",
+    "mode": "blend",
+    "status": "passed",
+    "steps": [
+      {
+        "name": "Setup project",
+        "action": "create_project",
+        "status": "success"
+      },
+      {
+        "name": "Add .9.png image",
+        "action": "copy_file",
+        "status": "success"
+      },
+      {
+        "name": "Configure plugin",
+        "action": "configure_plugin",
+        "status": "success"
+      },
+      {
+        "name": "Run prebuild",
+        "action": "run_prebuild",
+        "status": "success"
+      },
+      {
+        "name": "Verify Android .9 image",
+        "action": "verify_files",
+        "status": "success"
+      },
+      {
+        "name": "Verify Android styles",
+        "action": "verify_file_content",
+        "status": "success"
+      },
+      {
+        "name": "Verify MainActivity webview container",
+        "action": "verify_file_content",
+        "status": "success"
+      },
+      {
+        "name": "Build iOS app",
+        "action": "build_app",
+        "status": "success"
+      },
+      {
+        "name": "Build Android app",
+        "action": "build_app",
+        "status": "success"
+      }
+    ],
+    "assertions": [
+      {
+        "type": "file_exists",
+        "status": "success"
+      },
+      {
+        "type": "file_content",
+        "status": "success"
+      }
+    ],
+    "errors": []
+  },
+  {
+    "id": "blend_002",
+    "name": "Blend Mode WebView Container Background",
+    "suite": "Blend Mode Tests",
+    "mode": "blend",
+    "status": "passed",
+    "steps": [
+      {
+        "name": "Setup project",
+        "action": "create_project",
+        "status": "success"
+      },
+      {
+        "name": "Add .9.png image",
+        "action": "copy_file",
+        "status": "success"
+      },
+      {
+        "name": "Configure blend mode",
+        "action": "configure_plugin",
+        "status": "success"
+      },
+      {
+        "name": "Run prebuild",
+        "action": "run_prebuild",
+        "status": "success"
+      },
+      {
+        "name": "Verify webview container background code",
+        "action": "verify_file_content",
+        "status": "success"
+      }
+    ],
+    "assertions": [
+      {
+        "type": "file_content",
+        "status": "success"
+      }
+    ],
+    "errors": []
+  },
+  {
+    "id": "blend_003",
+    "name": "Blend Mode Custom HTML",
+    "suite": "Blend Mode Tests",
+    "mode": "blend",
+    "status": "passed",
+    "steps": [
+      {
+        "name": "Setup project",
+        "action": "create_project",
+        "status": "success"
+      },
+      {
+        "name": "Create custom HTML",
+        "action": "create_file",
+        "status": "success"
+      },
+      {
+        "name": "Add .9.png image",
+        "action": "copy_file",
+        "status": "success"
+      },
+      {
+        "name": "Configure plugin",
+        "action": "configure_plugin",
+        "status": "success"
+      },
+      {
+        "name": "Run prebuild",
+        "action": "run_prebuild",
+        "status": "success"
+      },
+      {
+        "name": "Verify custom HTML used",
+        "action": "verify_file_content",
+        "status": "success"
+      }
+    ],
+    "assertions": [
+      {
+        "type": "file_content",
+        "status": "success"
+      }
+    ],
+    "errors": []
+  },
+  {
+    "id": "cross_001",
+    "name": "Mode Switching",
+    "suite": "Cross-Mode Tests",
+    "status": "passed",
+    "steps": [
+      {
+        "name": "Setup project",
+        "action": "create_project",
+        "status": "success"
+      },
+      {
+        "name": "Setup with mode A",
+        "action": "configure_plugin",
+        "status": "success"
+      },
+      {
+        "name": "Run prebuild mode A",
+        "action": "run_prebuild",
+        "status": "success"
+      },
+      {
+        "name": "Switch to mode B",
+        "action": "configure_plugin",
+        "status": "success"
+      },
+      {
+        "name": "Run prebuild mode B",
+        "action": "run_prebuild",
+        "status": "success"
+      }
+    ],
+    "assertions": [
+      {
+        "type": "no_errors",
+        "status": "success"
+      }
+    ],
+    "errors": []
+  },
+  {
+    "id": "cross_002",
+    "name": "API Functions Across Modes",
+    "suite": "Cross-Mode Tests",
+    "status": "passed",
+    "steps": [
+      {
+        "name": "Setup project",
+        "action": "create_project",
+        "status": "success"
+      },
+      {
+        "name": "Configure plugin",
+        "action": "configure_plugin",
+        "status": "success"
+      },
+      {
+        "name": "Test preventAutoHideAsync",
+        "action": "test_api_function",
+        "status": "success"
+      },
+      {
+        "name": "Test hideAsync",
+        "action": "test_api_function",
+        "status": "success"
+      }
+    ],
+    "assertions": [
+      {
+        "type": "no_errors",
+        "status": "success"
+      }
+    ],
+    "errors": []
+  },
+  {
+    "id": "platform_ios_001",
+    "name": "iOS Storyboard Generation",
+    "suite": "Platform-Specific Tests",
+    "status": "passed",
+    "steps": [
+      {
+        "name": "Setup project",
+        "action": "create_project",
+        "status": "success"
+      },
+      {
+        "name": "Configure plugin",
+        "action": "configure_plugin",
+        "status": "success"
+      },
+      {
+        "name": "Run prebuild",
+        "action": "run_prebuild",
+        "status": "success"
+      },
+      {
+        "name": "Verify storyboard exists",
+        "action": "verify_files",
+        "status": "success"
+      }
+    ],
+    "assertions": [
+      {
+        "type": "file_exists",
+        "status": "success"
+      }
+    ],
+    "errors": []
+  },
+  {
+    "id": "platform_android_001",
+    "name": "Android Manifest Configuration",
+    "suite": "Platform-Specific Tests",
+    "status": "passed",
+    "steps": [
+      {
+        "name": "Setup project",
+        "action": "create_project",
+        "status": "success"
+      },
+      {
+        "name": "Configure plugin",
+        "action": "configure_plugin",
+        "status": "success"
+      },
+      {
+        "name": "Run prebuild",
+        "action": "run_prebuild",
+        "status": "success"
+      },
+      {
+        "name": "Verify manifest configuration",
+        "action": "verify_file_content",
+        "status": "success"
+      }
+    ],
+    "assertions": [
+      {
+        "type": "file_content",
+        "status": "success"
+      }
+    ],
+    "errors": []
+  },
+  {
+    "id": "platform_android_002",
+    "name": "Android Styles Configuration",
+    "suite": "Platform-Specific Tests",
+    "status": "passed",
+    "steps": [
+      {
+        "name": "Setup project",
+        "action": "create_project",
+        "status": "success"
+      },
+      {
+        "name": "Configure plugin",
+        "action": "configure_plugin",
+        "status": "success"
+      },
+      {
+        "name": "Run prebuild",
+        "action": "run_prebuild",
+        "status": "success"
+      },
+      {
+        "name": "Verify styles.xml",
+        "action": "verify_file_content",
+        "status": "success"
+      }
+    ],
+    "assertions": [
+      {
+        "type": "file_content",
+        "status": "success"
+      }
+    ],
+    "errors": []
+  },
+  {
+    "id": "error_001",
+    "name": "Missing Image File",
+    "suite": "Error Handling Tests",
+    "status": "failed",
+    "steps": [
+      {
+        "name": "Setup project",
+        "action": "create_project",
+        "status": "success"
+      },
+      {
+        "name": "Configure with missing image",
+        "action": "configure_plugin",
+        "status": "success"
+      },
+      {
+        "name": "Run prebuild (should fail)",
+        "action": "run_prebuild",
+        "status": "failed",
+        "error": "Step failed: Run prebuild (should fail)"
+      }
+    ],
+    "assertions": [],
+    "errors": [
+      "Step failed: Run prebuild (should fail)"
+    ]
+  },
+  {
+    "id": "error_002",
+    "name": "Invalid Configuration",
+    "suite": "Error Handling Tests",
+    "status": "failed",
+    "steps": [
+      {
+        "name": "Setup project",
+        "action": "create_project",
+        "status": "success"
+      },
+      {
+        "name": "Configure with invalid mode",
+        "action": "configure_plugin",
+        "status": "success"
+      },
+      {
+        "name": "Run prebuild (should fail)",
+        "action": "run_prebuild",
+        "status": "failed",
+        "error": "Step failed: Run prebuild (should fail)"
+      }
+    ],
+    "assertions": [],
+    "errors": [
+      "Step failed: Run prebuild (should fail)"
+    ]
+  }
+]
