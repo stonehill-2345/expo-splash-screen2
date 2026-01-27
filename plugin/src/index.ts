@@ -2360,6 +2360,47 @@ function modifyMainActivityForBlendMode(content: string, packageName: string, im
   private var splashImageViewContainer: ViewGroup? = null
   private var preventAutoHideImageView = false
 
+  /**
+   * 安全地设置视图可见性，自动处理异常
+   */
+  private fun safeSetVisibility(view: View?, visibility: Int, viewName: String) {
+    try {
+      view?.visibility = visibility
+    } catch (e: Exception) {
+      android.util.Log.e("MainActivity", "Error setting $viewName visibility", e)
+    }
+  }
+
+  private fun safeRemoveViewFromParent(child: View?, parent: ViewGroup?, viewName: String): Boolean {
+    if (child == null || parent == null) {
+      android.util.Log.d("MainActivity", "$viewName or parent is null, cannot remove")
+      return false
+    }
+    
+    try {
+      val childCount = parent.childCount
+      var found = false
+      for (i in 0 until childCount) {
+        if (parent.getChildAt(i) == child) {
+          found = true
+          break
+        }
+      }
+      
+      if (found) {
+        parent.removeView(child)
+        android.util.Log.d("MainActivity", "$viewName removed from parent")
+        return true
+      } else {
+        android.util.Log.d("MainActivity", "$viewName not found in parent")
+        return false
+      }
+    } catch (e: Exception) {
+      android.util.Log.e("MainActivity", "Error removing $viewName", e)
+      return false
+    }
+  }
+
   private fun setupSplashImageView() {
     try {
       // If container already exists, return directly
@@ -2436,6 +2477,18 @@ function modifyMainActivityForBlendMode(content: string, packageName: string, im
   }
 
   fun hideSplashImageViewContainer(force: Boolean = false) {
+    // Ensure all UI operations execute on main thread
+    if (Looper.myLooper() == Looper.getMainLooper()) {
+      hideSplashImageViewContainerInternal(force)
+    } else {
+      android.util.Log.d("MainActivity", "hideSplashImageViewContainer called from background thread, posting to main thread")
+      Handler(Looper.getMainLooper()).post {
+        hideSplashImageViewContainerInternal(force)
+      }
+    }
+  }
+
+  private fun hideSplashImageViewContainerInternal(force: Boolean = false) {
     try {
       // If preventAutoHideImageView is true and not force hide, don't execute hide operation
       if (preventAutoHideImageView && !force) {
@@ -2443,14 +2496,55 @@ function modifyMainActivityForBlendMode(content: string, packageName: string, im
         return
       }
 
-      val parent = splashImageViewContainer?.parent as? ViewGroup
-      parent?.removeView(splashImageViewContainer)
+      if (splashImageViewContainer != null) {
+        android.util.Log.d("MainActivity", "Hiding Splash ImageView container")
 
-      splashImageViewContainer?.visibility = View.GONE
-      splashImageViewContainer?.removeAllViews()
-      splashImageViewContainer = null
-      preventAutoHideImageView = false
-      android.util.Log.d("MainActivity", "Splash ImageView container hidden")
+        // First set visibility to GONE to ensure invisible
+        safeSetVisibility(splashImageViewContainer, View.GONE, "Splash ImageView container")
+
+        // Try to remove from parent view with validation
+        val parent = splashImageViewContainer?.parent as? ViewGroup
+        if (parent != null) {
+          val removed = safeRemoveViewFromParent(splashImageViewContainer, parent, "Splash ImageView container")
+          if (!removed) {
+            android.util.Log.d("MainActivity", "Splash ImageView container not found in parent, trying to remove from decorView")
+            // If not found in parent, try to remove directly from decorView
+            try {
+              val decorView = window.decorView as? ViewGroup
+              if (decorView != null) {
+                safeRemoveViewFromParent(splashImageViewContainer, decorView, "Splash ImageView container from decorView")
+              }
+            } catch (e: Exception) {
+              android.util.Log.e("MainActivity", "Error removing Splash ImageView container from decorView", e)
+            }
+          }
+        } else {
+          android.util.Log.d("MainActivity", "Splash ImageView container has no parent, trying to remove from decorView")
+          // If parent is null, try to remove directly from decorView
+          try {
+            val decorView = window.decorView as? ViewGroup
+            if (decorView != null) {
+              safeRemoveViewFromParent(splashImageViewContainer, decorView, "Splash ImageView container from decorView")
+            }
+          } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "Error removing Splash ImageView container from decorView", e)
+          }
+        }
+
+        // Clean up all child views
+        try {
+          splashImageViewContainer?.removeAllViews()
+        } catch (e: Exception) {
+          android.util.Log.e("MainActivity", "Error removing all views from Splash ImageView container", e)
+        }
+
+        // Clear reference
+        splashImageViewContainer = null
+        preventAutoHideImageView = false
+        android.util.Log.d("MainActivity", "Splash ImageView container hidden")
+      } else {
+        android.util.Log.d("MainActivity", "Splash ImageView container is null, skipping")
+      }
     } catch (e: Exception) {
       android.util.Log.e("MainActivity", "Error hiding splash ImageView container", e)
     }
@@ -2581,31 +2675,43 @@ function modifyMainActivityForBlendMode(content: string, packageName: string, im
         android.util.Log.d("MainActivity", "Hiding MainActivity WebView container")
 
         // First set visibility to GONE to ensure invisible
-        webViewContainer?.visibility = View.GONE
+        safeSetVisibility(webViewContainer, View.GONE, "WebView container")
 
-        // Try to remove from parent view
+        // Try to remove from parent view with validation
         val parent = webViewContainer?.parent as? ViewGroup
         if (parent != null) {
-          try {
-            parent.removeView(webViewContainer)
-            android.util.Log.d("MainActivity", "WebView container removed from parent")
-          } catch (e: Exception) {
-            android.util.Log.e("MainActivity", "Error removing WebView container from parent", e)
+          val removed = safeRemoveViewFromParent(webViewContainer, parent, "WebView container")
+          if (!removed) {
+            android.util.Log.d("MainActivity", "WebView container not found in parent, trying to remove from decorView")
+            // If not found in parent, try to remove directly from decorView
+            try {
+              val decorView = window.decorView as? ViewGroup
+              if (decorView != null) {
+                safeRemoveViewFromParent(webViewContainer, decorView, "WebView container from decorView")
+              }
+            } catch (e: Exception) {
+              android.util.Log.e("MainActivity", "Error removing WebView container from decorView", e)
+            }
           }
         } else {
           android.util.Log.d("MainActivity", "WebView container has no parent, trying to remove from decorView")
           // If parent is null, try to remove directly from decorView
           try {
             val decorView = window.decorView as? ViewGroup
-            decorView?.removeView(webViewContainer)
-            android.util.Log.d("MainActivity", "WebView container removed from decorView")
+            if (decorView != null) {
+              safeRemoveViewFromParent(webViewContainer, decorView, "WebView container from decorView")
+            }
           } catch (e: Exception) {
             android.util.Log.e("MainActivity", "Error removing WebView container from decorView", e)
           }
         }
 
         // Clean up all child views
-        webViewContainer?.removeAllViews()
+        try {
+          webViewContainer?.removeAllViews()
+        } catch (e: Exception) {
+          android.util.Log.e("MainActivity", "Error removing all views from WebView container", e)
+        }
 
         // Clear reference
         webViewContainer = null
@@ -2657,18 +2763,16 @@ function modifyMainActivityForBlendMode(content: string, packageName: string, im
   }
 
   // Add onContentChanged method to call both setupSplashImageView and setupWebViewContainer
-  // Call setupSplashImageView first, then setupWebViewContainer to ensure proper z-order
+  // 同步添加视图，避免在渲染过程中出现 null 引用导致崩溃
   const onContentChangedCode = `
   override fun onContentChanged() {
     super.onContentChanged()
-    // Show ImageView container and WebView container when content changed
-    // ImageView container (.9图背景) should be added first, then WebView container (透明背景) on top
-    Handler(Looper.getMainLooper()).post {
+    // 同步添加视图，避免在渲染过程中出现 null 引用导致崩溃
+    try {
       setupSplashImageView()
-      // Small delay to ensure ImageView container is added first
-      Handler(Looper.getMainLooper()).postDelayed({
-        setupWebViewContainer()
-      }, 50)
+      setupWebViewContainer()
+    } catch (e: Exception) {
+      android.util.Log.e("MainActivity", "Error in onContentChanged", e)
     }
   }`;
 
@@ -2676,7 +2780,30 @@ function modifyMainActivityForBlendMode(content: string, packageName: string, im
   // Also ensure onCreate method is properly formatted (not compressed to one line)
   const onCreateMatchForStatusBar = modifiedContent.match(/override\s+fun\s+onCreate\s*\([^)]*\)\s*\{/);
   if (onCreateMatchForStatusBar) {
-    const onCreateIndex = modifiedContent.indexOf(onCreateMatchForStatusBar[0]);
+    // Find all matches to get the correct one (in case there are multiple matches)
+    // Use the last match (most likely the correct one in MainActivity class)
+    let onCreateIndex = -1;
+    const allOnCreateMatches: number[] = [];
+    let searchStart = 0;
+    while (true) {
+      const match = modifiedContent.substring(searchStart).match(/override\s+fun\s+onCreate\s*\([^)]*\)\s*\{/);
+      if (!match) break;
+      const matchIndex = searchStart + match.index!;
+      allOnCreateMatches.push(matchIndex);
+      searchStart = matchIndex + match[0].length;
+    }
+    // Use the last match (most likely the correct one in MainActivity class)
+    if (allOnCreateMatches.length > 0) {
+      onCreateIndex = allOnCreateMatches[allOnCreateMatches.length - 1];
+    } else {
+      onCreateIndex = modifiedContent.indexOf(onCreateMatchForStatusBar[0]);
+    }
+    
+    // Check indentation: find the line start before onCreateIndex
+    const lineStartIndex = modifiedContent.lastIndexOf('\n', onCreateIndex - 1) + 1;
+    const onCreateLinePrefix = modifiedContent.substring(lineStartIndex, onCreateIndex);
+    // Check if indentation is not exactly 2 spaces (class-level method should have 2 spaces)
+    const hasWrongIndentation = onCreateLinePrefix !== '  ';
     
     // Find onCreate method end
     let braceCount = 0;
@@ -2698,25 +2825,61 @@ function modifyMainActivityForBlendMode(content: string, packageName: string, im
     
     const onCreateContent = modifiedContent.substring(onCreateIndex, onCreateEndIndex);
     
+    // Check if onCreate has format issues: {super.onCreate(...) on the same line as {
+    // Pattern: override fun onCreate(...) {super.onCreate(...)
+    // More accurate: check if there's no newline between { and super.onCreate
+    const openBraceIndex = onCreateContent.indexOf('{');
+    const superOnCreateIndex = onCreateContent.indexOf('super.onCreate');
+    const betweenBraceAndSuper = onCreateContent.substring(openBraceIndex + 1, superOnCreateIndex);
+    const hasFormatIssue = openBraceIndex !== -1 && 
+                          superOnCreateIndex !== -1 &&
+                          openBraceIndex < superOnCreateIndex &&
+                          !betweenBraceAndSuper.includes('\n') &&
+                          !onCreateContent.includes('\n    super.onCreate') &&
+                          !onCreateContent.includes('\n    super.onCreate(null)');
+    
     // Check if onCreate is compressed to one line (contains multiple statements without proper newlines)
     // Pattern: override fun onCreate(...) {super.onCreate(...)window.statusBarColor = ... window.navigationBarColor = ...}
     const isCompressed = /override\s+fun\s+onCreate\s*\([^)]*\)\s*\{[^}]*super\.onCreate[^}]*window\.statusBarColor[^}]*window\.navigationBarColor[^}]*\}/.test(onCreateContent) &&
                         !onCreateContent.includes('\n    super.onCreate') &&
                         !onCreateContent.includes('\n    window.statusBarColor');
     
-    if (isCompressed) {
-      // Reformat onCreate method to proper multi-line format
+    if (hasFormatIssue || isCompressed || hasWrongIndentation) {
+      // Extract all window settings from onCreate
       const superOnCreateMatch = onCreateContent.match(/super\.onCreate\([^)]*\)/);
+      const windowCompatMatch = onCreateContent.match(/WindowCompat\.setDecorFitsSystemWindows\(window,\s*false\)/);
+      const isNavigationBarContrastEnforcedMatch = onCreateContent.match(/if\s*\(Build\.VERSION\.SDK_INT\s*>=\s*Build\.VERSION_CODES\.Q\)\s*\{[\s\S]*?window\.isNavigationBarContrastEnforced\s*=\s*false[\s\S]*?\}/);
       const statusBarMatch = onCreateContent.match(/window\.statusBarColor\s*=\s*[^}\n]+/);
       const navBarMatch = onCreateContent.match(/window\.navigationBarColor\s*=\s*[^}\n]+/);
       
-      if (superOnCreateMatch && statusBarMatch && navBarMatch) {
-        const formattedOnCreate = `
-  override fun onCreate(savedInstanceState: Bundle?) {
-    ${superOnCreateMatch[0]}
-    ${statusBarMatch[0].trim()}
-    ${navBarMatch[0].replace(/[}]/g, '').trim()}
-  }`;
+      if (superOnCreateMatch) {
+        // Use 2 spaces for class-level method indentation (standard Kotlin style)
+        const indentation = '  ';
+        
+        // Build properly formatted onCreate method with correct indentation
+        let formattedOnCreate = `${indentation}override fun onCreate(savedInstanceState: Bundle?) {
+${indentation}  ${superOnCreateMatch[0]}`;
+        
+        if (windowCompatMatch) {
+          formattedOnCreate += `\n${indentation}  WindowCompat.setDecorFitsSystemWindows(window, false)`;
+        }
+        
+        if (isNavigationBarContrastEnforcedMatch) {
+          formattedOnCreate += `\n${indentation}  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+${indentation}    window.isNavigationBarContrastEnforced = false
+${indentation}  }`;
+        }
+        
+        if (statusBarMatch) {
+          formattedOnCreate += `\n${indentation}  ${statusBarMatch[0].replace(/[}]/g, '').trim()}`;
+        }
+        
+        if (navBarMatch) {
+          formattedOnCreate += `\n${indentation}  ${navBarMatch[0].replace(/[}]/g, '').trim()}`;
+        }
+        
+        formattedOnCreate += `\n${indentation}}`;
+        
         modifiedContent = modifiedContent.substring(0, onCreateIndex) +
                          formattedOnCreate +
                          modifiedContent.substring(onCreateEndIndex);
@@ -2752,7 +2915,23 @@ function modifyMainActivityForBlendMode(content: string, packageName: string, im
     // Use precise matching to find onCreate method end
     const onCreateMatchForInsert = modifiedContent.match(/override\s+fun\s+onCreate\s*\([^)]*\)\s*\{/);
     if (onCreateMatchForInsert) {
-      const onCreateIndexForInsert = modifiedContent.indexOf(onCreateMatchForInsert[0]);
+      // Find all matches to get the correct one (in case there are multiple matches)
+      let onCreateIndexForInsert = -1;
+      const allMatches: number[] = [];
+      let searchStart = 0;
+      while (true) {
+        const match = modifiedContent.substring(searchStart).match(/override\s+fun\s+onCreate\s*\([^)]*\)\s*\{/);
+        if (!match) break;
+        const matchIndex = searchStart + match.index!;
+        allMatches.push(matchIndex);
+        searchStart = matchIndex + match[0].length;
+      }
+      // Use the last match (most likely the correct one in MainActivity class)
+      if (allMatches.length > 0) {
+        onCreateIndexForInsert = allMatches[allMatches.length - 1];
+      } else {
+        onCreateIndexForInsert = modifiedContent.indexOf(onCreateMatchForInsert[0]);
+      }
       
       // Find onCreate method end using brace matching
       let braceCount = 0;
@@ -2773,9 +2952,72 @@ function modifyMainActivityForBlendMode(content: string, packageName: string, im
       }
       
       // Insert after onCreate method
+      // onCreateEndIndexForInsert points to the character after the closing brace of onCreate
+      // Insert onContentChanged right after onCreate method
       modifiedContent = modifiedContent.substring(0, onCreateEndIndexForInsert) +
                        '\n' + onContentChangedCode + '\n' +
                        modifiedContent.substring(onCreateEndIndexForInsert);
+      
+      // After inserting onContentChanged, check if there are duplicate closing braces
+      // Use brace matching to find the true end of onContentChanged method
+      const onContentChangedMethodStart = modifiedContent.indexOf('override fun onContentChanged()');
+      if (onContentChangedMethodStart !== -1) {
+        const methodSignatureEnd = modifiedContent.indexOf('{', onContentChangedMethodStart);
+        if (methodSignatureEnd !== -1) {
+          // Match nested braces to find the complete method
+          let braceCount = 0;
+          let methodEnd = methodSignatureEnd + 1;
+          let foundStart = false;
+          
+          for (let i = methodSignatureEnd; i < modifiedContent.length; i++) {
+            if (modifiedContent[i] === '{') {
+              braceCount++;
+              foundStart = true;
+            } else if (modifiedContent[i] === '}') {
+              braceCount--;
+              if (foundStart && braceCount === 0) {
+                methodEnd = i + 1;
+                break;
+              }
+            }
+          }
+          
+          // Now check if there's a duplicate closing brace after methodEnd
+          // Look at the next few characters after methodEnd
+          const afterOnContentChanged = modifiedContent.substring(methodEnd);
+          const trimmedAfter = afterOnContentChanged.trimStart();
+          
+          // More precise check: if the next non-whitespace character is a closing brace
+          // and it's on its own line (or immediately after whitespace), it's likely a duplicate
+          if (trimmedAfter.startsWith('}')) {
+            // Check if this closing brace is on its own line or immediately after the method
+            // If it's followed by a newline and then another method/comment, it's likely a duplicate
+            const duplicateBracePos = methodEnd + afterOnContentChanged.indexOf('}');
+            const afterDuplicateBrace = modifiedContent.substring(duplicateBracePos + 1).trimStart();
+            
+            // If after the duplicate brace, we see a comment (/**) or another method (override fun),
+            // then it's definitely a duplicate that should be removed
+            if (afterDuplicateBrace.startsWith('/**') || 
+                afterDuplicateBrace.match(/^\s*override\s+fun/) ||
+                afterDuplicateBrace.startsWith('companion object')) {
+              // Find the end of the duplicate brace line (including newline)
+              let removeEndIndex = duplicateBracePos + 1;
+              // Skip whitespace after the duplicate brace
+              while (removeEndIndex < modifiedContent.length && 
+                     (modifiedContent[removeEndIndex] === ' ' || modifiedContent[removeEndIndex] === '\t')) {
+                removeEndIndex++;
+              }
+              // Skip newline after the duplicate brace
+              if (removeEndIndex < modifiedContent.length && modifiedContent[removeEndIndex] === '\n') {
+                removeEndIndex++;
+              }
+              // Remove the duplicate closing brace and its surrounding whitespace
+              modifiedContent = modifiedContent.substring(0, methodEnd) +
+                               modifiedContent.substring(removeEndIndex);
+            }
+          }
+        }
+      }
     } else {
       // Fallback: insert before getMainComponentName
       const getMainComponentMatch = modifiedContent.match(/override\s+fun\s+getMainComponentName/);
@@ -2786,6 +3028,17 @@ function modifyMainActivityForBlendMode(content: string, packageName: string, im
                          modifiedContent.substring(insertPos);
       }
     }
+  }
+  
+  // Fix companion object indentation (ensure it has 2 spaces at class level)
+  const companionObjectIndentPattern = /^(\s*)companion\s+object\s*\{/m;
+  const companionObjectIndentMatch = modifiedContent.match(companionObjectIndentPattern);
+  if (companionObjectIndentMatch && companionObjectIndentMatch[1] !== '  ') {
+    // Replace companion object with correct indentation
+    modifiedContent = modifiedContent.replace(
+      companionObjectIndentPattern,
+      '  companion object {'
+    );
   }
   
   return modifiedContent;
