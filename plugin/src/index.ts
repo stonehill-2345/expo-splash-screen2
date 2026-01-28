@@ -98,6 +98,7 @@ function executeBuildSplashWeb(projectRoot: string): void {
 async function bundleSplashWeb(projectRoot: string): Promise<string> {
   const sourceDir = 'expo-splash-web';
   const dir = path.join(projectRoot, sourceDir);
+  console.log('[expo-splash-screen8] bundleSplashWeb dir:', dir);
   
   // Check if directory exists
   if (!fs.existsSync(dir)) {
@@ -983,8 +984,10 @@ function generateCustomSplashActivity(
   packageName: string,
   projectRoot: string,
   androidMainPath: string,
-  backgroundColor: string
+  backgroundColor: string,
+  edgeToEdgeEnabled?: boolean
 ): void {
+  console.log(`[expo-splash-screen5]  666:`, edgeToEdgeEnabled);
   const javaDir = path.join(
     androidMainPath,
     'java',
@@ -998,11 +1001,21 @@ function generateCustomSplashActivity(
   const activityPath = path.join(javaDir, `SplashScreen2Activity.kt`);
 
   // Use template to replace hardcoded strings
-  const activityContent = replaceTemplatePlaceholders(ANDROID_TEMPLATES.customSplashActivity, {
+  let activityContent = replaceTemplatePlaceholders(ANDROID_TEMPLATES.customSplashActivity, {
     packageName,
     activityName: CUSTOM_SPLASH_ACTIVITY_NAME,
     backgroundColor,
   });
+
+
+    console.error(`[expo-splash-screen3]  8888:`, edgeToEdgeEnabled);
+  // If edgeToEdgeEnabled is true, remove WindowCompat import and call
+  if (edgeToEdgeEnabled === true) {
+    // Remove import androidx.core.view.WindowCompat
+    activityContent = activityContent.replace(/import androidx\.core\.view\.WindowCompat\s*\n/, '');
+    // Remove WindowCompat.setDecorFitsSystemWindows(window, false) and its comment
+    activityContent = activityContent.replace(/\s*\/\/\s*Let content extend below status bar and navigation bar instead of hiding them\s*\n\s*WindowCompat\.setDecorFitsSystemWindows\(window,\s*false\)\s*\n/, '');
+  }
 
   try {
     fs.writeFileSync(activityPath, activityContent);
@@ -1019,7 +1032,8 @@ function generateCustomSplashActivityForBlendMode(
   packageName: string,
   projectRoot: string,
   androidMainPath: string,
-  imageResourceName: string
+  imageResourceName: string,
+  edgeToEdgeEnabled?: boolean
 ): void {
   const javaDir = path.join(
     androidMainPath,
@@ -1034,11 +1048,19 @@ function generateCustomSplashActivityForBlendMode(
   const activityPath = path.join(javaDir, `SplashScreen2Activity.kt`);
 
   // Use template to generate activity content
-  const activityContent = replaceTemplatePlaceholders(ANDROID_TEMPLATES.customSplashActivity, {
+  let activityContent = replaceTemplatePlaceholders(ANDROID_TEMPLATES.customSplashActivity, {
     packageName,
     activityName: CUSTOM_SPLASH_ACTIVITY_NAME,
     backgroundColor: '#ffffff', // Not used in blend mode, but required by template
   });
+
+  // If edgeToEdgeEnabled is true, remove WindowCompat import and call
+  if (edgeToEdgeEnabled === true) {
+    // Remove import androidx.core.view.WindowCompat
+    activityContent = activityContent.replace(/import androidx\.core\.view\.WindowCompat\s*\n/, '');
+    // Remove WindowCompat.setDecorFitsSystemWindows(window, false) and its comment
+    activityContent = activityContent.replace(/\s*\/\/\s*Let content extend below status bar and navigation bar instead of hiding them\s*\n\s*WindowCompat\.setDecorFitsSystemWindows\(window,\s*false\)\s*\n/, '');
+  }
 
   try {
     fs.writeFileSync(activityPath, activityContent);
@@ -1708,7 +1730,7 @@ function modifyMainActivityForNormalMode(
 /**
  * Modify MainActivity.kt, add actionStart static method and WebView container logic
  */
-function modifyMainActivity(content: string, packageName: string, backgroundColor: string): string {
+function modifyMainActivity(content: string, packageName: string, backgroundColor: string, edgeToEdgeEnabled?: boolean): string {
   const classMatch = content.match(/class\s+MainActivity\s*[^:]*:/);
   if (!classMatch) {
     console.warn('[expo-splash-screen2] MainActivity class not found');
@@ -1722,6 +1744,8 @@ function modifyMainActivity(content: string, packageName: string, backgroundColo
  
   
   // Check if these imports are already included (check all imports that need to be added)
+  // WindowCompat import is only needed if edgeToEdgeEnabled is false or undefined
+  const needsWindowCompat = edgeToEdgeEnabled !== true;
   let hasImports = content.includes('import android.os.Build') &&
                    content.includes('import android.os.Handler') && 
                    content.includes('import android.os.Looper') &&
@@ -1729,9 +1753,14 @@ function modifyMainActivity(content: string, packageName: string, backgroundColo
                    content.includes('import android.view.ViewGroup') &&
                    content.includes('import android.webkit.WebView') &&
                    content.includes('import android.webkit.WebViewClient') &&
-                   content.includes('import androidx.core.view.WindowCompat');
+                   (!needsWindowCompat || content.includes('import androidx.core.view.WindowCompat'));
   
   let modifiedContent = content;
+  
+  // Remove WindowCompat import if edgeToEdgeEnabled is true
+  if (edgeToEdgeEnabled === true && content.includes('import androidx.core.view.WindowCompat')) {
+    modifiedContent = modifiedContent.replace(/import androidx\.core\.view\.WindowCompat\s*\n/, '');
+  }
   
   // Add imports (only add missing imports)
   if (!hasImports) {
@@ -1744,10 +1773,14 @@ function modifyMainActivity(content: string, packageName: string, backgroundColo
       'import android.view.ViewGroup',
       'import android.webkit.WebView',
       'import android.webkit.WebViewClient',
-      'import androidx.core.view.WindowCompat'
     ];
     
-    const missingImports = importsToAddList.filter(imp => !content.includes(imp));
+    // Only add WindowCompat import if edgeToEdgeEnabled is false or undefined
+    if (needsWindowCompat) {
+      importsToAddList.push('import androidx.core.view.WindowCompat');
+    }
+    
+    const missingImports = importsToAddList.filter(imp => !modifiedContent.includes(imp));
     
     if (missingImports.length > 0) {
       const lastImportIndex = modifiedContent.lastIndexOf('import ');
@@ -1806,10 +1839,13 @@ function modifyMainActivity(content: string, packageName: string, backgroundColo
     const hasHandlerPost = onCreateContent.includes('Handler(Looper.getMainLooper()).post');
     const codeBlockExists = hasWindowCompat && hasSetupWebViewContainer && hasHandlerPost;
     
-    if (codeBlockExists) {
-      // Remove the complete code block by finding the start and end positions
-      // Start: Find the line with "Let content extend below status bar" or "WindowCompat.setDecorFitsSystemWindows"
-      // End: Find the closing brace of the Handler block that contains setupWebViewContainer
+    // If edgeToEdgeEnabled is true and WindowCompat call exists, remove only the WindowCompat line
+    if (edgeToEdgeEnabled === true && hasWindowCompat) {
+      // Remove only WindowCompat line and its comment, keep other window settings
+      cleanedOnCreateContent = cleanedOnCreateContent.replace(/\s*\/\/\s*Let content extend below status bar and navigation bar\s*\n\s*WindowCompat\.setDecorFitsSystemWindows\(window,\s*false\)\s*\n\s*/, '');
+    } else if (codeBlockExists && edgeToEdgeEnabled !== true) {
+      // If edgeToEdgeEnabled is false/undefined and code block exists, remove the complete code block
+      // Then add only WindowCompat and window settings (without Handler.post and setupWebViewContainer)
       const lines = onCreateContent.split('\n');
       const filteredLines: string[] = [];
       let inCodeBlock = false;
@@ -1857,6 +1893,32 @@ function modifyMainActivity(content: string, packageName: string, backgroundColo
       }
       
       cleanedOnCreateContent = filteredLines.join('\n');
+      
+      // After removing the code block, add only WindowCompat and window settings (without Handler.post and setupWebViewContainer)
+      const superOnCreateIndex = cleanedOnCreateContent.indexOf('super.onCreate');
+      if (superOnCreateIndex !== -1) {
+        // Find the end of super.onCreate line (could be on same line as { or on next line)
+        let superOnCreateEndIndex = cleanedOnCreateContent.indexOf('\n', superOnCreateIndex);
+        if (superOnCreateEndIndex === -1) {
+          // If no newline found, find the closing brace or end of line
+          superOnCreateEndIndex = cleanedOnCreateContent.length;
+        } else {
+          superOnCreateEndIndex = superOnCreateEndIndex + 1; // Include the newline
+        }
+        
+        // Only add WindowCompat and window settings (with isNavigationBarContrastEnforced), not Handler.post and setupWebViewContainer
+        const windowSettingsCode = `
+    WindowCompat.setDecorFitsSystemWindows(window, false)
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+      window.isNavigationBarContrastEnforced = false
+    }
+    window.statusBarColor = android.graphics.Color.TRANSPARENT
+    window.navigationBarColor = android.graphics.Color.TRANSPARENT`;
+        
+        cleanedOnCreateContent = cleanedOnCreateContent.substring(0, superOnCreateEndIndex) +
+                         windowSettingsCode + '\n' +
+                         cleanedOnCreateContent.substring(superOnCreateEndIndex);
+      }
     }
     
     // Remove setTheme(R.style.AppTheme) call and its comments
@@ -1902,23 +1964,70 @@ function modifyMainActivity(content: string, packageName: string, backgroundColo
     const hasSetupWebViewContainer = onCreateContent.includes('setupWebViewContainer');
     const hasHandlerPost = onCreateContent.includes('Handler(Looper.getMainLooper()).post');
     
-    // Only insert if the complete code block doesn't exist
-    // All three markers should be present together to indicate the code block is already inserted
+    // Check if the complete code block exists (all three markers together)
     const codeBlockExists = hasWindowCompat && hasSetupWebViewContainer && hasHandlerPost;
     
-    if (!codeBlockExists) {
+    // Check if only WindowCompat and window settings exist (without Handler.post and setupWebViewContainer)
+    // This happens when codeBlockExists && edgeToEdgeEnabled !== true, we removed the code block and added only WindowCompat and window settings
+    const hasOnlyWindowSettings = hasWindowCompat && !hasSetupWebViewContainer && !hasHandlerPost;
+    
+    // If edgeToEdgeEnabled is false/undefined and WindowCompat is missing, we need to add it
+    // If edgeToEdgeEnabled is true and WindowCompat exists, we need to remove it (handled in earlier code)
+    // If hasOnlyWindowSettings is true, we already added WindowCompat and window settings, don't add Handler.post and setupWebViewContainer
+    const needsWindowCompat = edgeToEdgeEnabled !== true;
+    // Only add complete code block if:
+    // 1. Complete code block doesn't exist (!codeBlockExists)
+    // 2. We don't have only window settings (!hasOnlyWindowSettings) - this means we need to add Handler.post and setupWebViewContainer
+    // 3. We need WindowCompat and don't have it, OR we need to add setupWebViewContainer and Handler.post
+    const shouldAddCode = !codeBlockExists && !hasOnlyWindowSettings && (needsWindowCompat && !hasWindowCompat || (!hasSetupWebViewContainer || !hasHandlerPost));
+    
+    if (shouldAddCode) {
+      // Before adding, remove any existing window color settings and WindowCompat that might conflict
+      // This ensures we don't have duplicate window.statusBarColor, window.navigationBarColor, or WindowCompat
+      let cleanedOnCreateForAdd = onCreateContent;
+      const hasExistingWindowColors = cleanedOnCreateForAdd.includes('window.statusBarColor') || cleanedOnCreateForAdd.includes('window.navigationBarColor');
+      const hasExistingWindowCompat = cleanedOnCreateForAdd.includes('WindowCompat.setDecorFitsSystemWindows');
+      if (hasExistingWindowColors) {
+        // Remove existing window color settings and related code
+        cleanedOnCreateForAdd = cleanedOnCreateForAdd.replace(/\s*if\s*\(Build\.VERSION\.SDK_INT\s*>=\s*Build\.VERSION_CODES\.Q\)\s*\{\s*\n\s*window\.isNavigationBarContrastEnforced\s*=\s*false\s*\n\s*\}\s*\n?/g, '');
+        cleanedOnCreateForAdd = cleanedOnCreateForAdd.replace(/\s*window\.statusBarColor\s*=\s*android\.graphics\.Color\.TRANSPARENT\s*\n?/g, '');
+        cleanedOnCreateForAdd = cleanedOnCreateForAdd.replace(/\s*window\.navigationBarColor\s*=\s*android\.graphics\.Color\.TRANSPARENT\s*\n?/g, '');
+      }
+      if (hasExistingWindowCompat) {
+        // Remove existing WindowCompat call and its comment
+        cleanedOnCreateForAdd = cleanedOnCreateForAdd.replace(/\s*\/\/\s*Let content extend below status bar and navigation bar\s*\n\s*WindowCompat\.setDecorFitsSystemWindows\(window,\s*false\)\s*\n\s*/, '');
+      }
+      
       // Add setupWebViewContainer call after super.onCreate
-      const superOnCreateIndex = onCreateContent.indexOf('super.onCreate');
+      const superOnCreateIndex = cleanedOnCreateForAdd.indexOf('super.onCreate');
       if (superOnCreateIndex !== -1) {
-        const superOnCreateEndIndex = onCreateContent.indexOf('\n', superOnCreateIndex);
-        if (superOnCreateEndIndex !== -1) {
-          // Use template to replace hardcoded strings
-          const setupCall = ANDROID_TEMPLATES.mainActivityOnCreateCode;
-          
-          modifiedContent = modifiedContent.substring(0, onCreateIndex + superOnCreateEndIndex + 1) +
-                           setupCall + '\n' +
-                           modifiedContent.substring(onCreateIndex + superOnCreateEndIndex + 1);
+        // Find the end of super.onCreate line (could be on same line as { or on next line)
+        let superOnCreateEndIndex = cleanedOnCreateForAdd.indexOf('\n', superOnCreateIndex);
+        if (superOnCreateEndIndex === -1) {
+          // If no newline found, find the closing brace or end of line
+          superOnCreateEndIndex = cleanedOnCreateForAdd.length;
+        } else {
+          superOnCreateEndIndex = superOnCreateEndIndex + 1; // Include the newline
         }
+        
+        // Use template to replace hardcoded strings
+        let setupCall = ANDROID_TEMPLATES.mainActivityOnCreateCode;
+        
+        // If edgeToEdgeEnabled is true, remove WindowCompat call but keep other window settings and Handler.post
+        if (edgeToEdgeEnabled === true) {
+          // Remove WindowCompat line and its comment, keep other window settings
+          setupCall = setupCall.replace(/\s*\/\/\s*Let content extend below status bar and navigation bar\s*\n\s*WindowCompat\.setDecorFitsSystemWindows\(window,\s*false\)\s*\n\s*/, '');
+        }
+        
+        // Replace the onCreate content with cleaned version + new code
+        const newOnCreateContent = cleanedOnCreateForAdd.substring(0, superOnCreateEndIndex) +
+                         setupCall + '\n' +
+                         cleanedOnCreateForAdd.substring(superOnCreateEndIndex);
+        
+        // Replace the entire onCreate method in modifiedContent
+        modifiedContent = modifiedContent.substring(0, onCreateIndex) + 
+                         newOnCreateContent + 
+                         modifiedContent.substring(onCreateEndIndex);
       }
     }
   }
@@ -2061,7 +2170,7 @@ function modifyMainActivity(content: string, packageName: string, backgroundColo
  * Modify MainActivity.kt for Blend mode
  * Blend mode: ImageView container (.9图背景) + WebView container (透明背景，在ImageView之上)
  */
-function modifyMainActivityForBlendMode(content: string, packageName: string, imageResourceName: string): string {
+function modifyMainActivityForBlendMode(content: string, packageName: string, imageResourceName: string, edgeToEdgeEnabled?: boolean): string {
   // Check if blend mode code already exists
   if (content.includes('splashImageViewContainer') && content.includes('setupSplashImageView') && 
       content.includes('onContentChanged') && content.includes('setupWebViewContainer')) {
@@ -2069,7 +2178,7 @@ function modifyMainActivityForBlendMode(content: string, packageName: string, im
   }
 
   // Use modifyMainActivity as base (this adds WebView container logic)
-  let modifiedContent = modifyMainActivity(content, packageName, '#ffffff'); // backgroundColor not used in blend mode
+  let modifiedContent = modifyMainActivity(content, packageName, '#ffffff', edgeToEdgeEnabled); // backgroundColor not used in blend mode
   
   // Remove .9 patch image as container background from WebView container (keep it transparent)
   // Find and remove the background setting code if it exists
@@ -2107,9 +2216,103 @@ function modifyMainActivityForBlendMode(content: string, packageName: string, im
     const onCreateContent = modifiedContent.substring(onCreateIndex, onCreateEndIndex);
     let cleanedOnCreateContent = onCreateContent;
     
-    // Remove setupWebViewContainer call and related code from onCreate
-    const setupWebViewRegex = /(\s*\/\/\s*[^\n]*\n)*\s*(WindowCompat\.setDecorFitsSystemWindows|setupWebViewContainer|Handler\s*\(\s*Looper\.getMainLooper\(\)\s*\)\.post)[\s\S]*?\}\s*/g;
-    cleanedOnCreateContent = cleanedOnCreateContent.replace(setupWebViewRegex, '');
+    // Check if WindowCompat and window settings exist
+    const hasWindowCompat = onCreateContent.includes('WindowCompat.setDecorFitsSystemWindows');
+    const hasSetupWebViewContainer = onCreateContent.includes('setupWebViewContainer');
+    const hasHandlerPost = onCreateContent.includes('Handler(Looper.getMainLooper()).post');
+    
+    // Remove setupWebViewContainer call and Handler.post from onCreate, but keep WindowCompat and window settings if edgeToEdgeEnabled !== true
+    if (hasSetupWebViewContainer || hasHandlerPost) {
+      // Remove Handler.post and setupWebViewContainer, but preserve WindowCompat and window settings
+      const lines = onCreateContent.split('\n');
+      const filteredLines: string[] = [];
+      let inHandlerBlock = false;
+      let handlerBraceCount = 0;
+      let foundHandlerStart = false;
+      
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        
+        // Check if this line starts the Handler block
+        if (!inHandlerBlock && line.includes('Handler(Looper.getMainLooper()).post')) {
+          inHandlerBlock = true;
+          foundHandlerStart = true;
+          continue; // Skip this line
+        }
+        
+        if (inHandlerBlock) {
+          // Count braces to find the end of Handler block
+          handlerBraceCount += (line.match(/\{/g) || []).length;
+          handlerBraceCount -= (line.match(/\}/g) || []).length;
+          
+          // If we've closed all braces (Handler block is complete), end the Handler block
+          if (handlerBraceCount <= 0) {
+            inHandlerBlock = false;
+            handlerBraceCount = 0;
+            foundHandlerStart = false;
+            continue; // Skip this line (the closing brace of Handler)
+          }
+          
+          // Skip this line (it's part of the Handler block)
+          continue;
+        }
+        
+        // Remove setupWebViewContainer call (but keep other lines)
+        if (line.includes('setupWebViewContainer')) {
+          continue; // Skip this line
+        }
+        
+        // Keep all other lines (including WindowCompat and window settings)
+        filteredLines.push(line);
+      }
+      
+      cleanedOnCreateContent = filteredLines.join('\n');
+    }
+    
+    // If edgeToEdgeEnabled !== true, ensure we have the three lines: WindowCompat and window settings
+    if (edgeToEdgeEnabled !== true) {
+      const hasWindowCompatAfterClean = cleanedOnCreateContent.includes('WindowCompat.setDecorFitsSystemWindows');
+      const hasStatusBarColor = cleanedOnCreateContent.includes('window.statusBarColor');
+      const hasNavigationBarColor = cleanedOnCreateContent.includes('window.navigationBarColor');
+      
+      // Check if we have isNavigationBarContrastEnforced
+      const hasIsNavigationBarContrastEnforced = cleanedOnCreateContent.includes('isNavigationBarContrastEnforced');
+      
+      // If we don't have all required code, add them
+      if (!hasWindowCompatAfterClean || !hasStatusBarColor || !hasNavigationBarColor || !hasIsNavigationBarContrastEnforced) {
+        // Remove any existing window settings and WindowCompat to avoid duplicates
+        cleanedOnCreateContent = cleanedOnCreateContent.replace(/\s*\/\/\s*Let content extend below status bar and navigation bar\s*\n\s*/g, '');
+        cleanedOnCreateContent = cleanedOnCreateContent.replace(/\s*WindowCompat\.setDecorFitsSystemWindows\(window,\s*false\)\s*\n?/g, '');
+        cleanedOnCreateContent = cleanedOnCreateContent.replace(/\s*if\s*\(Build\.VERSION\.SDK_INT\s*>=\s*Build\.VERSION_CODES\.Q\)\s*\{\s*\n\s*window\.isNavigationBarContrastEnforced\s*=\s*false\s*\n\s*\}\s*\n?/g, '');
+        cleanedOnCreateContent = cleanedOnCreateContent.replace(/\s*window\.statusBarColor\s*=\s*android\.graphics\.Color\.TRANSPARENT\s*\n?/g, '');
+        cleanedOnCreateContent = cleanedOnCreateContent.replace(/\s*window\.navigationBarColor\s*=\s*android\.graphics\.Color\.TRANSPARENT\s*\n?/g, '');
+        
+        // Add the window settings code (including isNavigationBarContrastEnforced) after super.onCreate
+        const superOnCreateIndex = cleanedOnCreateContent.indexOf('super.onCreate');
+        if (superOnCreateIndex !== -1) {
+          // Find the end of super.onCreate line (could be on same line as { or on next line)
+          let superOnCreateEndIndex = cleanedOnCreateContent.indexOf('\n', superOnCreateIndex);
+          if (superOnCreateEndIndex === -1) {
+            // If no newline found, find the closing brace or end of line
+            superOnCreateEndIndex = cleanedOnCreateContent.length;
+          } else {
+            superOnCreateEndIndex = superOnCreateEndIndex + 1; // Include the newline
+          }
+          
+          const windowSettingsCode = `
+    WindowCompat.setDecorFitsSystemWindows(window, false)
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+      window.isNavigationBarContrastEnforced = false
+    }
+    window.statusBarColor = android.graphics.Color.TRANSPARENT
+    window.navigationBarColor = android.graphics.Color.TRANSPARENT`;
+          
+          cleanedOnCreateContent = cleanedOnCreateContent.substring(0, superOnCreateEndIndex) +
+                           windowSettingsCode + '\n' +
+                           cleanedOnCreateContent.substring(superOnCreateEndIndex);
+        }
+      }
+    }
     
     if (cleanedOnCreateContent !== onCreateContent) {
       modifiedContent = modifiedContent.substring(0, onCreateIndex) + 
@@ -2156,6 +2359,47 @@ function modifyMainActivityForBlendMode(content: string, packageName: string, im
   const imageViewCode = `
   private var splashImageViewContainer: ViewGroup? = null
   private var preventAutoHideImageView = false
+
+  /**
+   * 安全地设置视图可见性，自动处理异常
+   */
+  private fun safeSetVisibility(view: View?, visibility: Int, viewName: String) {
+    try {
+      view?.visibility = visibility
+    } catch (e: Exception) {
+      android.util.Log.e("MainActivity", "Error setting $viewName visibility", e)
+    }
+  }
+
+  private fun safeRemoveViewFromParent(child: View?, parent: ViewGroup?, viewName: String): Boolean {
+    if (child == null || parent == null) {
+      android.util.Log.d("MainActivity", "$viewName or parent is null, cannot remove")
+      return false
+    }
+    
+    try {
+      val childCount = parent.childCount
+      var found = false
+      for (i in 0 until childCount) {
+        if (parent.getChildAt(i) == child) {
+          found = true
+          break
+        }
+      }
+      
+      if (found) {
+        parent.removeView(child)
+        android.util.Log.d("MainActivity", "$viewName removed from parent")
+        return true
+      } else {
+        android.util.Log.d("MainActivity", "$viewName not found in parent")
+        return false
+      }
+    } catch (e: Exception) {
+      android.util.Log.e("MainActivity", "Error removing $viewName", e)
+      return false
+    }
+  }
 
   private fun setupSplashImageView() {
     try {
@@ -2233,6 +2477,18 @@ function modifyMainActivityForBlendMode(content: string, packageName: string, im
   }
 
   fun hideSplashImageViewContainer(force: Boolean = false) {
+    // Ensure all UI operations execute on main thread
+    if (Looper.myLooper() == Looper.getMainLooper()) {
+      hideSplashImageViewContainerInternal(force)
+    } else {
+      android.util.Log.d("MainActivity", "hideSplashImageViewContainer called from background thread, posting to main thread")
+      Handler(Looper.getMainLooper()).post {
+        hideSplashImageViewContainerInternal(force)
+      }
+    }
+  }
+
+  private fun hideSplashImageViewContainerInternal(force: Boolean = false) {
     try {
       // If preventAutoHideImageView is true and not force hide, don't execute hide operation
       if (preventAutoHideImageView && !force) {
@@ -2240,14 +2496,55 @@ function modifyMainActivityForBlendMode(content: string, packageName: string, im
         return
       }
 
-      val parent = splashImageViewContainer?.parent as? ViewGroup
-      parent?.removeView(splashImageViewContainer)
+      if (splashImageViewContainer != null) {
+        android.util.Log.d("MainActivity", "Hiding Splash ImageView container")
 
-      splashImageViewContainer?.visibility = View.GONE
-      splashImageViewContainer?.removeAllViews()
-      splashImageViewContainer = null
-      preventAutoHideImageView = false
-      android.util.Log.d("MainActivity", "Splash ImageView container hidden")
+        // First set visibility to GONE to ensure invisible
+        safeSetVisibility(splashImageViewContainer, View.GONE, "Splash ImageView container")
+
+        // Try to remove from parent view with validation
+        val parent = splashImageViewContainer?.parent as? ViewGroup
+        if (parent != null) {
+          val removed = safeRemoveViewFromParent(splashImageViewContainer, parent, "Splash ImageView container")
+          if (!removed) {
+            android.util.Log.d("MainActivity", "Splash ImageView container not found in parent, trying to remove from decorView")
+            // If not found in parent, try to remove directly from decorView
+            try {
+              val decorView = window.decorView as? ViewGroup
+              if (decorView != null) {
+                safeRemoveViewFromParent(splashImageViewContainer, decorView, "Splash ImageView container from decorView")
+              }
+            } catch (e: Exception) {
+              android.util.Log.e("MainActivity", "Error removing Splash ImageView container from decorView", e)
+            }
+          }
+        } else {
+          android.util.Log.d("MainActivity", "Splash ImageView container has no parent, trying to remove from decorView")
+          // If parent is null, try to remove directly from decorView
+          try {
+            val decorView = window.decorView as? ViewGroup
+            if (decorView != null) {
+              safeRemoveViewFromParent(splashImageViewContainer, decorView, "Splash ImageView container from decorView")
+            }
+          } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "Error removing Splash ImageView container from decorView", e)
+          }
+        }
+
+        // Clean up all child views
+        try {
+          splashImageViewContainer?.removeAllViews()
+        } catch (e: Exception) {
+          android.util.Log.e("MainActivity", "Error removing all views from Splash ImageView container", e)
+        }
+
+        // Clear reference
+        splashImageViewContainer = null
+        preventAutoHideImageView = false
+        android.util.Log.d("MainActivity", "Splash ImageView container hidden")
+      } else {
+        android.util.Log.d("MainActivity", "Splash ImageView container is null, skipping")
+      }
     } catch (e: Exception) {
       android.util.Log.e("MainActivity", "Error hiding splash ImageView container", e)
     }
@@ -2378,31 +2675,43 @@ function modifyMainActivityForBlendMode(content: string, packageName: string, im
         android.util.Log.d("MainActivity", "Hiding MainActivity WebView container")
 
         // First set visibility to GONE to ensure invisible
-        webViewContainer?.visibility = View.GONE
+        safeSetVisibility(webViewContainer, View.GONE, "WebView container")
 
-        // Try to remove from parent view
+        // Try to remove from parent view with validation
         val parent = webViewContainer?.parent as? ViewGroup
         if (parent != null) {
-          try {
-            parent.removeView(webViewContainer)
-            android.util.Log.d("MainActivity", "WebView container removed from parent")
-          } catch (e: Exception) {
-            android.util.Log.e("MainActivity", "Error removing WebView container from parent", e)
+          val removed = safeRemoveViewFromParent(webViewContainer, parent, "WebView container")
+          if (!removed) {
+            android.util.Log.d("MainActivity", "WebView container not found in parent, trying to remove from decorView")
+            // If not found in parent, try to remove directly from decorView
+            try {
+              val decorView = window.decorView as? ViewGroup
+              if (decorView != null) {
+                safeRemoveViewFromParent(webViewContainer, decorView, "WebView container from decorView")
+              }
+            } catch (e: Exception) {
+              android.util.Log.e("MainActivity", "Error removing WebView container from decorView", e)
+            }
           }
         } else {
           android.util.Log.d("MainActivity", "WebView container has no parent, trying to remove from decorView")
           // If parent is null, try to remove directly from decorView
           try {
             val decorView = window.decorView as? ViewGroup
-            decorView?.removeView(webViewContainer)
-            android.util.Log.d("MainActivity", "WebView container removed from decorView")
+            if (decorView != null) {
+              safeRemoveViewFromParent(webViewContainer, decorView, "WebView container from decorView")
+            }
           } catch (e: Exception) {
             android.util.Log.e("MainActivity", "Error removing WebView container from decorView", e)
           }
         }
 
         // Clean up all child views
-        webViewContainer?.removeAllViews()
+        try {
+          webViewContainer?.removeAllViews()
+        } catch (e: Exception) {
+          android.util.Log.e("MainActivity", "Error removing all views from WebView container", e)
+        }
 
         // Clear reference
         webViewContainer = null
@@ -2454,18 +2763,16 @@ function modifyMainActivityForBlendMode(content: string, packageName: string, im
   }
 
   // Add onContentChanged method to call both setupSplashImageView and setupWebViewContainer
-  // Call setupSplashImageView first, then setupWebViewContainer to ensure proper z-order
+  // 同步添加视图，避免在渲染过程中出现 null 引用导致崩溃
   const onContentChangedCode = `
   override fun onContentChanged() {
     super.onContentChanged()
-    // Show ImageView container and WebView container when content changed
-    // ImageView container (.9图背景) should be added first, then WebView container (透明背景) on top
-    Handler(Looper.getMainLooper()).post {
+    // 同步添加视图，避免在渲染过程中出现 null 引用导致崩溃
+    try {
       setupSplashImageView()
-      // Small delay to ensure ImageView container is added first
-      Handler(Looper.getMainLooper()).postDelayed({
-        setupWebViewContainer()
-      }, 50)
+      setupWebViewContainer()
+    } catch (e: Exception) {
+      android.util.Log.e("MainActivity", "Error in onContentChanged", e)
     }
   }`;
 
@@ -2473,7 +2780,30 @@ function modifyMainActivityForBlendMode(content: string, packageName: string, im
   // Also ensure onCreate method is properly formatted (not compressed to one line)
   const onCreateMatchForStatusBar = modifiedContent.match(/override\s+fun\s+onCreate\s*\([^)]*\)\s*\{/);
   if (onCreateMatchForStatusBar) {
-    const onCreateIndex = modifiedContent.indexOf(onCreateMatchForStatusBar[0]);
+    // Find all matches to get the correct one (in case there are multiple matches)
+    // Use the last match (most likely the correct one in MainActivity class)
+    let onCreateIndex = -1;
+    const allOnCreateMatches: number[] = [];
+    let searchStart = 0;
+    while (true) {
+      const match = modifiedContent.substring(searchStart).match(/override\s+fun\s+onCreate\s*\([^)]*\)\s*\{/);
+      if (!match) break;
+      const matchIndex = searchStart + match.index!;
+      allOnCreateMatches.push(matchIndex);
+      searchStart = matchIndex + match[0].length;
+    }
+    // Use the last match (most likely the correct one in MainActivity class)
+    if (allOnCreateMatches.length > 0) {
+      onCreateIndex = allOnCreateMatches[allOnCreateMatches.length - 1];
+    } else {
+      onCreateIndex = modifiedContent.indexOf(onCreateMatchForStatusBar[0]);
+    }
+    
+    // Check indentation: find the line start before onCreateIndex
+    const lineStartIndex = modifiedContent.lastIndexOf('\n', onCreateIndex - 1) + 1;
+    const onCreateLinePrefix = modifiedContent.substring(lineStartIndex, onCreateIndex);
+    // Check if indentation is not exactly 2 spaces (class-level method should have 2 spaces)
+    const hasWrongIndentation = onCreateLinePrefix !== '  ';
     
     // Find onCreate method end
     let braceCount = 0;
@@ -2495,25 +2825,61 @@ function modifyMainActivityForBlendMode(content: string, packageName: string, im
     
     const onCreateContent = modifiedContent.substring(onCreateIndex, onCreateEndIndex);
     
+    // Check if onCreate has format issues: {super.onCreate(...) on the same line as {
+    // Pattern: override fun onCreate(...) {super.onCreate(...)
+    // More accurate: check if there's no newline between { and super.onCreate
+    const openBraceIndex = onCreateContent.indexOf('{');
+    const superOnCreateIndex = onCreateContent.indexOf('super.onCreate');
+    const betweenBraceAndSuper = onCreateContent.substring(openBraceIndex + 1, superOnCreateIndex);
+    const hasFormatIssue = openBraceIndex !== -1 && 
+                          superOnCreateIndex !== -1 &&
+                          openBraceIndex < superOnCreateIndex &&
+                          !betweenBraceAndSuper.includes('\n') &&
+                          !onCreateContent.includes('\n    super.onCreate') &&
+                          !onCreateContent.includes('\n    super.onCreate(null)');
+    
     // Check if onCreate is compressed to one line (contains multiple statements without proper newlines)
     // Pattern: override fun onCreate(...) {super.onCreate(...)window.statusBarColor = ... window.navigationBarColor = ...}
     const isCompressed = /override\s+fun\s+onCreate\s*\([^)]*\)\s*\{[^}]*super\.onCreate[^}]*window\.statusBarColor[^}]*window\.navigationBarColor[^}]*\}/.test(onCreateContent) &&
                         !onCreateContent.includes('\n    super.onCreate') &&
                         !onCreateContent.includes('\n    window.statusBarColor');
     
-    if (isCompressed) {
-      // Reformat onCreate method to proper multi-line format
+    if (hasFormatIssue || isCompressed || hasWrongIndentation) {
+      // Extract all window settings from onCreate
       const superOnCreateMatch = onCreateContent.match(/super\.onCreate\([^)]*\)/);
+      const windowCompatMatch = onCreateContent.match(/WindowCompat\.setDecorFitsSystemWindows\(window,\s*false\)/);
+      const isNavigationBarContrastEnforcedMatch = onCreateContent.match(/if\s*\(Build\.VERSION\.SDK_INT\s*>=\s*Build\.VERSION_CODES\.Q\)\s*\{[\s\S]*?window\.isNavigationBarContrastEnforced\s*=\s*false[\s\S]*?\}/);
       const statusBarMatch = onCreateContent.match(/window\.statusBarColor\s*=\s*[^}\n]+/);
       const navBarMatch = onCreateContent.match(/window\.navigationBarColor\s*=\s*[^}\n]+/);
       
-      if (superOnCreateMatch && statusBarMatch && navBarMatch) {
-        const formattedOnCreate = `
-  override fun onCreate(savedInstanceState: Bundle?) {
-    ${superOnCreateMatch[0]}
-    ${statusBarMatch[0].trim()}
-    ${navBarMatch[0].replace(/[}]/g, '').trim()}
-  }`;
+      if (superOnCreateMatch) {
+        // Use 2 spaces for class-level method indentation (standard Kotlin style)
+        const indentation = '  ';
+        
+        // Build properly formatted onCreate method with correct indentation
+        let formattedOnCreate = `${indentation}override fun onCreate(savedInstanceState: Bundle?) {
+${indentation}  ${superOnCreateMatch[0]}`;
+        
+        if (windowCompatMatch) {
+          formattedOnCreate += `\n${indentation}  WindowCompat.setDecorFitsSystemWindows(window, false)`;
+        }
+        
+        if (isNavigationBarContrastEnforcedMatch) {
+          formattedOnCreate += `\n${indentation}  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+${indentation}    window.isNavigationBarContrastEnforced = false
+${indentation}  }`;
+        }
+        
+        if (statusBarMatch) {
+          formattedOnCreate += `\n${indentation}  ${statusBarMatch[0].replace(/[}]/g, '').trim()}`;
+        }
+        
+        if (navBarMatch) {
+          formattedOnCreate += `\n${indentation}  ${navBarMatch[0].replace(/[}]/g, '').trim()}`;
+        }
+        
+        formattedOnCreate += `\n${indentation}}`;
+        
         modifiedContent = modifiedContent.substring(0, onCreateIndex) +
                          formattedOnCreate +
                          modifiedContent.substring(onCreateEndIndex);
@@ -2549,7 +2915,23 @@ function modifyMainActivityForBlendMode(content: string, packageName: string, im
     // Use precise matching to find onCreate method end
     const onCreateMatchForInsert = modifiedContent.match(/override\s+fun\s+onCreate\s*\([^)]*\)\s*\{/);
     if (onCreateMatchForInsert) {
-      const onCreateIndexForInsert = modifiedContent.indexOf(onCreateMatchForInsert[0]);
+      // Find all matches to get the correct one (in case there are multiple matches)
+      let onCreateIndexForInsert = -1;
+      const allMatches: number[] = [];
+      let searchStart = 0;
+      while (true) {
+        const match = modifiedContent.substring(searchStart).match(/override\s+fun\s+onCreate\s*\([^)]*\)\s*\{/);
+        if (!match) break;
+        const matchIndex = searchStart + match.index!;
+        allMatches.push(matchIndex);
+        searchStart = matchIndex + match[0].length;
+      }
+      // Use the last match (most likely the correct one in MainActivity class)
+      if (allMatches.length > 0) {
+        onCreateIndexForInsert = allMatches[allMatches.length - 1];
+      } else {
+        onCreateIndexForInsert = modifiedContent.indexOf(onCreateMatchForInsert[0]);
+      }
       
       // Find onCreate method end using brace matching
       let braceCount = 0;
@@ -2570,9 +2952,72 @@ function modifyMainActivityForBlendMode(content: string, packageName: string, im
       }
       
       // Insert after onCreate method
+      // onCreateEndIndexForInsert points to the character after the closing brace of onCreate
+      // Insert onContentChanged right after onCreate method
       modifiedContent = modifiedContent.substring(0, onCreateEndIndexForInsert) +
                        '\n' + onContentChangedCode + '\n' +
                        modifiedContent.substring(onCreateEndIndexForInsert);
+      
+      // After inserting onContentChanged, check if there are duplicate closing braces
+      // Use brace matching to find the true end of onContentChanged method
+      const onContentChangedMethodStart = modifiedContent.indexOf('override fun onContentChanged()');
+      if (onContentChangedMethodStart !== -1) {
+        const methodSignatureEnd = modifiedContent.indexOf('{', onContentChangedMethodStart);
+        if (methodSignatureEnd !== -1) {
+          // Match nested braces to find the complete method
+          let braceCount = 0;
+          let methodEnd = methodSignatureEnd + 1;
+          let foundStart = false;
+          
+          for (let i = methodSignatureEnd; i < modifiedContent.length; i++) {
+            if (modifiedContent[i] === '{') {
+              braceCount++;
+              foundStart = true;
+            } else if (modifiedContent[i] === '}') {
+              braceCount--;
+              if (foundStart && braceCount === 0) {
+                methodEnd = i + 1;
+                break;
+              }
+            }
+          }
+          
+          // Now check if there's a duplicate closing brace after methodEnd
+          // Look at the next few characters after methodEnd
+          const afterOnContentChanged = modifiedContent.substring(methodEnd);
+          const trimmedAfter = afterOnContentChanged.trimStart();
+          
+          // More precise check: if the next non-whitespace character is a closing brace
+          // and it's on its own line (or immediately after whitespace), it's likely a duplicate
+          if (trimmedAfter.startsWith('}')) {
+            // Check if this closing brace is on its own line or immediately after the method
+            // If it's followed by a newline and then another method/comment, it's likely a duplicate
+            const duplicateBracePos = methodEnd + afterOnContentChanged.indexOf('}');
+            const afterDuplicateBrace = modifiedContent.substring(duplicateBracePos + 1).trimStart();
+            
+            // If after the duplicate brace, we see a comment (/**) or another method (override fun),
+            // then it's definitely a duplicate that should be removed
+            if (afterDuplicateBrace.startsWith('/**') || 
+                afterDuplicateBrace.match(/^\s*override\s+fun/) ||
+                afterDuplicateBrace.startsWith('companion object')) {
+              // Find the end of the duplicate brace line (including newline)
+              let removeEndIndex = duplicateBracePos + 1;
+              // Skip whitespace after the duplicate brace
+              while (removeEndIndex < modifiedContent.length && 
+                     (modifiedContent[removeEndIndex] === ' ' || modifiedContent[removeEndIndex] === '\t')) {
+                removeEndIndex++;
+              }
+              // Skip newline after the duplicate brace
+              if (removeEndIndex < modifiedContent.length && modifiedContent[removeEndIndex] === '\n') {
+                removeEndIndex++;
+              }
+              // Remove the duplicate closing brace and its surrounding whitespace
+              modifiedContent = modifiedContent.substring(0, methodEnd) +
+                               modifiedContent.substring(removeEndIndex);
+            }
+          }
+        }
+      }
     } else {
       // Fallback: insert before getMainComponentName
       const getMainComponentMatch = modifiedContent.match(/override\s+fun\s+getMainComponentName/);
@@ -2583,6 +3028,17 @@ function modifyMainActivityForBlendMode(content: string, packageName: string, im
                          modifiedContent.substring(insertPos);
       }
     }
+  }
+  
+  // Fix companion object indentation (ensure it has 2 spaces at class level)
+  const companionObjectIndentPattern = /^(\s*)companion\s+object\s*\{/m;
+  const companionObjectIndentMatch = modifiedContent.match(companionObjectIndentPattern);
+  if (companionObjectIndentMatch && companionObjectIndentMatch[1] !== '  ') {
+    // Replace companion object with correct indentation
+    modifiedContent = modifiedContent.replace(
+      companionObjectIndentPattern,
+      '  companion object {'
+    );
   }
   
   return modifiedContent;
@@ -5960,9 +6416,12 @@ function setupWebViewMode(config: any, pluginConfig: SplashHtmlConfig): any {
       // WebView 模式目前不支持 dark 配置，所以只设置浅色模式背景色
       createSplashColorsXml(androidMainPath, pluginConfig.backgroundColor || '#ffffff');
 
+      // 读取 edgeToEdgeEnabled 配置
+      const edgeToEdgeEnabled = config.android?.edgeToEdgeEnabled;
+
       // 生成 CustomSplashActivity
       if (projectRoot) {
-        generateCustomSplashActivity(packageName, projectRoot, androidMainPath, pluginConfig.backgroundColor || '#ffffff');
+        generateCustomSplashActivity(packageName, projectRoot, androidMainPath, pluginConfig.backgroundColor || '#ffffff', edgeToEdgeEnabled);
         generatePrivacyPolicyActivity(packageName, projectRoot, androidMainPath);
       } else {
         console.warn('[expo-splash-screen2] projectRoot is undefined, skipping activity generation');
@@ -5979,10 +6438,12 @@ function setupWebViewMode(config: any, pluginConfig: SplashHtmlConfig): any {
 
   // 3. 修改 MainActivity.kt
   config = withMainActivity(config, (config) => {
+    const edgeToEdgeEnabled = config.android?.edgeToEdgeEnabled;
     config.modResults.contents = modifyMainActivity(
       config.modResults.contents,
       packageName,
-      pluginConfig.backgroundColor || '#ffffff'
+      pluginConfig.backgroundColor || '#ffffff',
+      edgeToEdgeEnabled
     );
     return config;
   });
@@ -6600,9 +7061,12 @@ function setupBlendMode(config: any, pluginConfig: SplashHtmlConfig): any {
       // 创建颜色资源文件（用于系统启动画面）
       createSplashColorsXml(androidMainPath, pluginConfig.backgroundColor || '#ffffff');
 
+      // 读取 edgeToEdgeEnabled 配置
+      const edgeToEdgeEnabled = config.android?.edgeToEdgeEnabled;
+
       // 生成 CustomSplashActivity（WebView容器背景使用.9图）
       if (projectRoot) {
-        generateCustomSplashActivityForBlendMode(packageName, projectRoot, androidMainPath, imageResourceName);
+        generateCustomSplashActivityForBlendMode(packageName, projectRoot, androidMainPath, imageResourceName, edgeToEdgeEnabled);
         generatePrivacyPolicyActivity(packageName, projectRoot, androidMainPath);
       } else {
         console.warn('[expo-splash-screen2] projectRoot is undefined, skipping activity generation');
@@ -6619,10 +7083,12 @@ function setupBlendMode(config: any, pluginConfig: SplashHtmlConfig): any {
 
   // 修改 MainActivity.kt（WebView容器背景使用.9图）
   config = withMainActivity(config, (config) => {
+    const edgeToEdgeEnabled = config.android?.edgeToEdgeEnabled;
     config.modResults.contents = modifyMainActivityForBlendMode(
       config.modResults.contents,
       packageName,
-      savedImageResourceName
+      savedImageResourceName,
+      edgeToEdgeEnabled
     );
     return config;
   });

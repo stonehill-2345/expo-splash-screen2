@@ -694,7 +694,8 @@ class SplashScreen2PrivacyPolicyActivity : AppCompatActivity() {
         context.overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out)
       }
     }
-  }`,
+  }
+`,
 
   /**
    * MainActivity modification code snippet - WebView container related code

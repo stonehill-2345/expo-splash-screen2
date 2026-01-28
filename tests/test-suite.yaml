@@ -1,0 +1,789 @@
+name: expo-splash-screen2 Test Suite
+description: Comprehensive automated tests for all four modes of expo-splash-screen2
+
+# Test Configuration
+config:
+  project_root: "./test-project"
+  timeout: 300  # seconds
+  platforms:
+    - ios
+    - android
+  
+  # Test data
+  test_images:
+    webview_background: "#FFFFFF"
+    responsive_image: "./test-assets/splash-background.png"
+    normal_icon: "./test-assets/splash-icon.png"
+    blend_background: "./test-assets/splash-background.9.png"
+    dark_icon: "./test-assets/splash-icon-dark.png"
+
+# Test Suites
+test_suites:
+  - name: WebView Mode Tests
+    description: Tests for WebView HTML mode
+    tests:
+      - name: Basic WebView Configuration
+        id: webview_001
+        mode: webview
+        config:
+          mode: webview
+          backgroundColor: "#FFFFFF"
+        steps:
+          - name: Setup test project
+            action: create_project
+            params:
+              name: test-webview-basic
+          
+          - name: Configure app.json
+            action: configure_plugin
+            params:
+              mode: webview
+              backgroundColor: "#FFFFFF"
+          
+          - name: Run prebuild
+            action: run_prebuild
+            expected_result: success
+          
+          - name: Verify iOS files
+            action: verify_files
+            platform: ios
+            files:
+              - "ios/[Project]/SplashScreen2ViewController.swift"
+              - "ios/[Project]/SplashScreen.storyboard"
+            expected_result: exists
+          
+          - name: Verify Android files
+            action: verify_files
+            platform: android
+            files:
+              - "android/app/src/main/assets/index.html"
+            expected_result: exists
+          
+          - name: Build iOS app
+            action: build_app
+            platform: ios
+            expected_result: success
+          
+          - name: Build Android app
+            action: build_app
+            platform: android
+            expected_result: success
+        
+        assertions:
+          - type: file_exists
+            path: "expo-splash-web/dist/index.html"
+          - type: no_errors
+            log_level: error
+
+      - name: Custom HTML Path
+        id: webview_002
+        mode: webview
+        config:
+          mode: webview
+          backgroundColor: "#FF0000"
+          localHtmlPath: "./custom-splash.html"
+        steps:
+          - name: Setup test project
+            action: create_project
+            params:
+              name: test-webview-custom-html
+          
+          - name: Create custom HTML file
+            action: create_file
+            path: "./custom-splash.html"
+            content: "<html><body><h1>Custom Splash</h1></body></html>"
+          
+          - name: Configure plugin
+            action: configure_plugin
+            params:
+              mode: webview
+              backgroundColor: "#FF0000"
+              localHtmlPath: "./custom-splash.html"
+          
+          - name: Run prebuild
+            action: run_prebuild
+            expected_result: success
+          
+          - name: Verify custom HTML copied
+            action: verify_files
+            platform: android
+            files:
+              - "android/app/src/main/assets/index.html"
+            expected_result: exists
+          
+          - name: Verify custom content
+            action: verify_file_content
+            path: "android/app/src/main/assets/index.html"
+            contains: "Custom Splash"
+        
+        assertions:
+          - type: file_content
+            path: "android/app/src/main/assets/index.html"
+            contains: "Custom Splash"
+
+      - name: WebView JavaScript Bridge
+        id: webview_003
+        mode: webview
+        config:
+          mode: webview
+        steps:
+          - name: Setup project
+            action: create_project
+            params:
+              name: test-webview-js-bridge
+          
+          - name: Configure plugin
+            action: configure_plugin
+            params:
+              mode: webview
+          
+          - name: Test preventAutoHideAsync
+            action: test_api_function
+            function: preventAutoHideAsync
+            expected_result: success
+          
+          - name: Test hideAsync
+            action: test_api_function
+            function: hideAsync
+            expected_result: success
+
+  - name: ResponsiveImage Mode Tests
+    description: Tests for responsive image mode
+    tests:
+      - name: Basic ResponsiveImage Configuration
+        id: responsive_001
+        mode: responsiveImage
+        config:
+          mode: responsiveImage
+          backgroundColor: "#000000"
+          image: "./test-assets/splash-background.png"
+        steps:
+          - name: Setup test project
+            action: create_project
+            params:
+              name: test-responsive-basic
+          
+          - name: Add test image
+            action: copy_file
+            source: "./test-assets/splash-background.png"
+            destination: "./assets/splash-background.png"
+          
+          - name: Configure plugin
+            action: configure_plugin
+            params:
+              mode: responsiveImage
+              backgroundColor: "#000000"
+              image: "./assets/splash-background.png"
+          
+          - name: Run prebuild
+            action: run_prebuild
+            expected_result: success
+          
+          - name: Verify iOS image copied
+            action: verify_files
+            platform: ios
+            files:
+              - "ios/[Project]/Images.xcassets/SplashScreen.imageset/splash-background.png"
+            expected_result: exists
+          
+          - name: Verify Android image copied
+            action: verify_files
+            platform: android
+            files:
+              - "android/app/src/main/res/drawable/splash_background_image.png"
+            expected_result: exists
+          
+          - name: Build iOS app
+            action: build_app
+            platform: ios
+            expected_result: success
+          
+          - name: Build Android app
+            action: build_app
+            platform: android
+            expected_result: success
+        
+        assertions:
+          - type: file_exists
+            path: "android/app/src/main/res/drawable/splash_background_image.png"
+          - type: no_errors
+            log_level: error
+
+      - name: Android .9 Patch Image Support
+        id: responsive_002
+        mode: responsiveImage
+        config:
+          mode: responsiveImage
+          image: "./test-assets/splash-background.9.png"
+        steps:
+          - name: Setup project
+            action: create_project
+            params:
+              name: test-responsive-9patch
+          
+          - name: Add .9.png image
+            action: copy_file
+            source: "./test-assets/splash-background.9.png"
+            destination: "./assets/splash-background.9.png"
+          
+          - name: Configure plugin
+            action: configure_plugin
+            params:
+              mode: responsiveImage
+              image: "./assets/splash-background.9.png"
+          
+          - name: Run prebuild
+            action: run_prebuild
+            expected_result: success
+          
+          - name: Verify .9.png recognized
+            action: verify_files
+            platform: android
+            files:
+              - "android/app/src/main/res/drawable/splash_background_image.9.png"
+            expected_result: exists
+          
+          - name: Build Android app
+            action: build_app
+            platform: android
+            expected_result: success
+          
+          - name: Verify .9.png file content
+            action: verify_file_content
+            path: "android/app/src/main/res/drawable/splash_background_image.9.png"
+            contains: ""
+        
+        assertions:
+          - type: file_exists
+            path: "android/app/src/main/res/drawable/splash_background_image.9.png"
+
+  - name: Normal Mode Tests
+    description: Tests for normal (centered image) mode
+    tests:
+      - name: Basic Normal Mode Configuration
+        id: normal_001
+        mode: normal
+        config:
+          mode: normal
+          backgroundColor: "#10021F"
+          image: "./test-assets/splash-icon.png"
+          imageWidth: 100
+        steps:
+          - name: Setup project
+            action: create_project
+            params:
+              name: test-normal-basic
+          
+          - name: Add icon image
+            action: copy_file
+            source: "./test-assets/splash-icon.png"
+            destination: "./assets/splash-icon.png"
+          
+          - name: Configure plugin
+            action: configure_plugin
+            params:
+              mode: normal
+              backgroundColor: "#10021F"
+              image: "./assets/splash-icon.png"
+              imageWidth: 100
+          
+          - name: Run prebuild
+            action: run_prebuild
+            expected_result: success
+          
+          - name: Verify iOS configuration
+            action: verify_files
+            platform: ios
+            files:
+              - "ios/[Project]/Images.xcassets/SplashIcon.imageset/splash-icon.png"
+            expected_result: exists
+          
+          - name: Verify Android configuration
+            action: verify_files
+            platform: android
+            files:
+              - "android/app/src/main/res/drawable/splash_icon.png"
+            expected_result: exists
+          
+          - name: Build iOS app
+            action: build_app
+            platform: ios
+            expected_result: success
+          
+          - name: Build Android app
+            action: build_app
+            platform: android
+            expected_result: success
+        
+        assertions:
+          - type: file_exists
+            path: "android/app/src/main/res/drawable/splash_icon.png"
+          - type: no_errors
+            log_level: error
+
+      - name: Custom Image Width
+        id: normal_002
+        mode: normal
+        config:
+          mode: normal
+          image: "./test-assets/splash-icon.png"
+          imageWidth: 200
+        steps:
+          - name: Setup project
+            action: create_project
+            params:
+              name: test-normal-custom-width
+          
+          - name: Add icon image
+            action: copy_file
+            source: "./test-assets/splash-icon.png"
+            destination: "./assets/splash-icon.png"
+          
+          - name: Configure with custom width
+            action: configure_plugin
+            params:
+              mode: normal
+              image: "./assets/splash-icon.png"
+              imageWidth: 200
+          
+          - name: Run prebuild and verify
+            action: run_prebuild
+            expected_result: success
+          
+          - name: Verify Android image exists
+            action: verify_files
+            platform: android
+            files:
+              - "android/app/src/main/res/drawable/splash_icon.png"
+            expected_result: exists
+        
+        assertions:
+          - type: file_exists
+            path: "android/app/src/main/res/drawable/splash_icon.png"
+
+      - name: Dark Mode Support
+        id: normal_003
+        mode: normal
+        config:
+          mode: normal
+          backgroundColor: "#FFFFFF"
+          image: "./test-assets/splash-icon.png"
+          dark:
+            backgroundColor: "#000000"
+            image: "./test-assets/splash-icon-dark.png"
+        steps:
+          - name: Setup project
+            action: create_project
+            params:
+              name: test-normal-dark-mode
+          
+          - name: Add light image
+            action: copy_file
+            source: "./test-assets/splash-icon.png"
+            destination: "./assets/splash-icon.png"
+          
+          - name: Add dark image
+            action: copy_file
+            source: "./test-assets/splash-icon-dark.png"
+            destination: "./assets/splash-icon-dark.png"
+          
+          - name: Configure with dark mode
+            action: configure_plugin
+            params:
+              mode: normal
+              backgroundColor: "#FFFFFF"
+              image: "./assets/splash-icon.png"
+              dark:
+                backgroundColor: "#000000"
+                image: "./assets/splash-icon-dark.png"
+          
+          - name: Run prebuild
+            action: run_prebuild
+            expected_result: success
+          
+          - name: Verify iOS light mode assets
+            action: verify_files
+            platform: ios
+            files:
+              - "ios/[Project]/Images.xcassets/SplashIcon.imageset/splash-icon.png"
+            expected_result: exists
+          
+          - name: Verify Android light mode resources
+            action: verify_files
+            platform: android
+            files:
+              - "android/app/src/main/res/drawable/splash_icon.png"
+            expected_result: exists
+        
+        assertions:
+          - type: file_exists
+            path: "android/app/src/main/res/drawable/splash_icon.png"
+
+  - name: Blend Mode Tests
+    description: Tests for blend mode (.9 image + WebView)
+    tests:
+      - name: Basic Blend Mode Configuration
+        id: blend_001
+        mode: blend
+        config:
+          mode: blend
+          image: "./test-assets/splash-background.9.png"
+        steps:
+          - name: Setup project
+            action: create_project
+            params:
+              name: test-blend-basic
+          
+          - name: Add .9.png image
+            action: copy_file
+            source: "./test-assets/splash-background.9.png"
+            destination: "./assets/splash-background.9.png"
+          
+          - name: Configure plugin
+            action: configure_plugin
+            params:
+              mode: blend
+              image: "./assets/splash-background.9.png"
+          
+          - name: Run prebuild
+            action: run_prebuild
+            expected_result: success
+          
+          - name: Verify Android .9 image
+            action: verify_files
+            platform: android
+            files:
+              - "android/app/src/main/res/drawable/splash_background_image.9.png"
+            expected_result: exists
+          
+          - name: Verify Android styles
+            action: verify_file_content
+            path: "android/app/src/main/res/values/styles.xml"
+            contains: "Theme.App.SplashScreen"
+          
+          - name: Verify MainActivity webview container
+            action: verify_file_content
+            path: "android/app/src/main/java/.../MainActivity.kt"
+            contains: "webViewContainer"
+          
+          - name: Build iOS app
+            action: build_app
+            platform: ios
+            expected_result: success
+          
+          - name: Build Android app
+            action: build_app
+            platform: android
+            expected_result: success
+        
+        assertions:
+          - type: file_exists
+            path: "android/app/src/main/res/drawable/splash_background_image.9.png"
+          - type: file_content
+            path: "android/app/src/main/res/values/styles.xml"
+            contains: "@drawable/splash_background_image"
+
+      - name: Blend Mode WebView Container Background
+        id: blend_002
+        mode: blend
+        config:
+          mode: blend
+          image: "./test-assets/splash-background.9.png"
+        steps:
+          - name: Setup project
+            action: create_project
+            params:
+              name: test-blend-webview-background
+          
+          - name: Add .9.png image
+            action: copy_file
+            source: "./test-assets/splash-background.9.png"
+            destination: "./assets/splash-background.9.png"
+          
+          - name: Configure blend mode
+            action: configure_plugin
+            params:
+              mode: blend
+              image: "./assets/splash-background.9.png"
+          
+          - name: Run prebuild
+            action: run_prebuild
+            expected_result: success
+          
+          - name: Verify webview container background code
+            action: verify_file_content
+            path: "android/app/src/main/java/.../MainActivity.kt"
+            contains: "splash_background_image"
+        
+        assertions:
+          - type: file_content
+            path: "android/app/src/main/java/.../MainActivity.kt"
+            contains: "splash_background_image"
+
+      - name: Blend Mode Custom HTML
+        id: blend_003
+        mode: blend
+        config:
+          mode: blend
+          image: "./test-assets/splash-background.9.png"
+          localHtmlPath: "./custom-blend.html"
+        steps:
+          - name: Setup project
+            action: create_project
+            params:
+              name: test-blend-custom-html
+          
+          - name: Create custom HTML
+            action: create_file
+            path: "./custom-blend.html"
+            content: "<html><body><h1>Blend Custom</h1></body></html>"
+          
+          - name: Add .9.png image
+            action: copy_file
+            source: "./test-assets/splash-background.9.png"
+            destination: "./assets/splash-background.9.png"
+          
+          - name: Configure plugin
+            action: configure_plugin
+            params:
+              mode: blend
+              image: "./assets/splash-background.9.png"
+              localHtmlPath: "./custom-blend.html"
+          
+          - name: Run prebuild
+            action: run_prebuild
+            expected_result: success
+          
+          - name: Verify custom HTML used
+            action: verify_file_content
+            path: "android/app/src/main/assets/index.html"
+            contains: "Blend Custom"
+        
+        assertions:
+          - type: file_content
+            path: "android/app/src/main/assets/index.html"
+            contains: "Blend Custom"
+
+  - name: Cross-Mode Tests
+    description: Tests that apply across all modes
+    tests:
+      - name: Mode Switching
+        id: cross_001
+        steps:
+          - name: Setup project
+            action: create_project
+            params:
+              name: test-mode-switching
+          
+          - name: Setup with mode A
+            action: configure_plugin
+            params:
+              mode: webview
+          
+          - name: Run prebuild mode A
+            action: run_prebuild
+            expected_result: success
+          
+          - name: Switch to mode B
+            action: configure_plugin
+            params:
+              mode: responsiveImage
+              image: "./assets/splash-background.png"
+          
+          - name: Run prebuild mode B
+            action: run_prebuild
+            expected_result: success
+        
+        assertions:
+          - type: no_errors
+            log_level: error
+
+      - name: API Functions Across Modes
+        id: cross_002
+        steps:
+          - name: Setup project
+            action: create_project
+            params:
+              name: test-api-functions
+          
+          - name: Configure plugin
+            action: configure_plugin
+            params:
+              mode: webview
+          
+          - name: Test preventAutoHideAsync
+            action: test_api_function
+            function: preventAutoHideAsync
+            expected_result: success
+          
+          - name: Test hideAsync
+            action: test_api_function
+            function: hideAsync
+            expected_result: success
+        
+        assertions:
+          - type: no_errors
+            log_level: error
+
+  - name: Platform-Specific Tests
+    description: Platform-specific tests
+    tests:
+      - name: iOS Storyboard Generation
+        id: platform_ios_001
+        platform: ios
+        steps:
+          - name: Setup project
+            action: create_project
+            params:
+              name: test-ios-storyboard
+          
+          - name: Configure plugin
+            action: configure_plugin
+            params:
+              mode: webview
+          
+          - name: Run prebuild
+            action: run_prebuild
+            expected_result: success
+          
+          - name: Verify storyboard exists
+            action: verify_files
+            platform: ios
+            files:
+              - "ios/[Project]/SplashScreen.storyboard"
+            expected_result: exists
+        
+        assertions:
+          - type: file_exists
+            path: "ios/[Project]/SplashScreen.storyboard"
+
+      - name: Android Manifest Configuration
+        id: platform_android_001
+        platform: android
+        steps:
+          - name: Setup project
+            action: create_project
+            params:
+              name: test-android-manifest
+          
+          - name: Configure plugin
+            action: configure_plugin
+            params:
+              mode: webview
+          
+          - name: Run prebuild
+            action: run_prebuild
+            expected_result: success
+          
+          - name: Verify manifest configuration
+            action: verify_file_content
+            path: "android/app/src/main/AndroidManifest.xml"
+            contains: "SplashScreen2Activity"
+        
+        assertions:
+          - type: file_content
+            path: "android/app/src/main/AndroidManifest.xml"
+            contains: "SplashScreen2Activity"
+
+      - name: Android Styles Configuration
+        id: platform_android_002
+        platform: android
+        steps:
+          - name: Setup project
+            action: create_project
+            params:
+              name: test-android-styles
+          
+          - name: Configure plugin
+            action: configure_plugin
+            params:
+              mode: responsiveImage
+              image: "./assets/splash-background.png"
+          
+          - name: Run prebuild
+            action: run_prebuild
+            expected_result: success
+          
+          - name: Verify styles.xml
+            action: verify_file_content
+            path: "android/app/src/main/res/values/styles.xml"
+            contains: "Theme.App.SplashScreen"
+        
+        assertions:
+          - type: file_content
+            path: "android/app/src/main/res/values/styles.xml"
+            contains: "Theme.App.SplashScreen"
+
+  - name: Error Handling Tests
+    description: Tests for error handling
+    tests:
+      - name: Missing Image File
+        id: error_001
+        config:
+          mode: responsiveImage
+          image: "./non-existent-image.png"
+        steps:
+          - name: Setup project
+            action: create_project
+            params:
+              name: test-error-missing-image
+          
+          - name: Configure with missing image
+            action: configure_plugin
+            params:
+              mode: responsiveImage
+              image: "./non-existent-image.png"
+          
+          - name: Run prebuild (should fail)
+            action: run_prebuild
+            expected_result: failure
+        
+        assertions:
+          - type: no_errors
+            log_level: error
+
+      - name: Invalid Configuration
+        id: error_002
+        config:
+          mode: invalid_mode
+        steps:
+          - name: Setup project
+            action: create_project
+            params:
+              name: test-error-invalid-config
+          
+          - name: Configure with invalid mode
+            action: configure_plugin
+            params:
+              mode: invalid_mode
+          
+          - name: Run prebuild (should fail)
+            action: run_prebuild
+            expected_result: failure
+        
+        assertions:
+          - type: no_errors
+            log_level: error
+
+# Test Execution Configuration
+execution:
+  parallel: false
+  retry_count: 2
+  timeout_per_test: 300
+  
+  # Test environment
+  environment:
+    node_version: ">=16"
+    expo_cli_version: "latest"
+    
+  # Cleanup
+  cleanup:
+    after_each_test: true
+    remove_test_project: true
+
+# Reporting
+reporting:
+  format: [junit, json, html]
+  output_dir: "./test-results"
+  include_screenshots: true
+  include_logs: true
