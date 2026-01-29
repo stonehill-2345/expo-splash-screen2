@@ -2167,8 +2167,74 @@ function modifyMainActivity(content: string, packageName: string, backgroundColo
 }
 
 /**
- * Modify MainActivity.kt for Blend mode
+ * Helper function: Find method position and insertion point after super call (incremental overlay mode)
+ * Returns method info with insertion position, or null if method not found
+ */
+function findMethodInsertPosition(
+  content: string,
+  methodPattern: RegExp,
+  superCallPattern: RegExp
+): { methodStart: number; methodEnd: number; methodContent: string; insertAfterSuper: number } | null {
+  const methodMatch = content.match(methodPattern);
+  if (!methodMatch) return null;
+  
+  // Find all matches to get the correct one (use last match, most likely in MainActivity class)
+  let methodStart = -1;
+  const allMatches: number[] = [];
+  let searchStart = 0;
+  while (true) {
+    const match = content.substring(searchStart).match(methodPattern);
+    if (!match) break;
+    const matchIndex = searchStart + match.index!;
+    allMatches.push(matchIndex);
+    searchStart = matchIndex + match[0].length;
+  }
+  if (allMatches.length > 0) {
+    methodStart = allMatches[allMatches.length - 1];
+  } else {
+    methodStart = content.indexOf(methodMatch[0]);
+  }
+  
+  // Find method end using brace matching
+  let braceCount = 0;
+  let methodEnd = methodStart + methodMatch[0].length;
+  let foundStart = false;
+  
+  for (let i = methodStart; i < content.length; i++) {
+    if (content[i] === '{') {
+      braceCount++;
+      foundStart = true;
+    } else if (content[i] === '}') {
+      braceCount--;
+      if (foundStart && braceCount === 0) {
+        methodEnd = i + 1;
+        break;
+      }
+    }
+  }
+  
+  const methodContent = content.substring(methodStart, methodEnd);
+  const superMatch = methodContent.match(superCallPattern);
+  if (!superMatch) return null;
+  
+  // Find insertion point after super call
+  const superIndex = methodContent.indexOf(superMatch[0]);
+  const superEnd = superIndex + superMatch[0].length;
+  const nextLineIndex = methodContent.indexOf('\n', superEnd);
+  const insertAfterSuper = methodStart + (nextLineIndex !== -1 ? nextLineIndex + 1 : superEnd);
+  
+  return { methodStart, methodEnd, methodContent, insertAfterSuper };
+}
+
+/**
+ * Modify MainActivity.kt for Blend mode (Incremental Overlay Mode)
  * Blend mode: ImageView container (.9图背景) + WebView container (透明背景，在ImageView之上)
+ * 
+ * Strategy:
+ * 1. Identify system methods (onCreate, onContentChanged)
+ * 2. If not exists, add complete method
+ * 3. If exists, insert plugin code after super call (incremental overlay, don't replace entire method)
+ * 4. For plugin methods, add if not exists
  */
 function modifyMainActivityForBlendMode(content: string, packageName: string, imageResourceName: string, edgeToEdgeEnabled?: boolean): string {
   // Check if blend mode code already exists
@@ -2177,186 +2243,371 @@ function modifyMainActivityForBlendMode(content: string, packageName: string, im
     return content;
   }
 
-  // Use modifyMainActivity as base (this adds WebView container logic)
-  let modifiedContent = modifyMainActivity(content, packageName, '#ffffff', edgeToEdgeEnabled); // backgroundColor not used in blend mode
+  let modifiedContent = content;
   
-  // Remove .9 patch image as container background from WebView container (keep it transparent)
-  // Find and remove the background setting code if it exists
-  const fitsSystemWindowsPattern = /(\s*\/\/\s*Ensure container is not affected by system window insets[^\n]*\n\s*fitsSystemWindows\s*=\s*false\s*)(\s*\/\/\s*Set \.9 patch image as container background[\s\S]*?android\.util\.Log\.e\("MainActivity", "Error setting background drawable", e\)[\s\S]*?\}\s*)(\n\s*\})/;
-  if (fitsSystemWindowsPattern.test(modifiedContent)) {
-    modifiedContent = modifiedContent.replace(
-      fitsSystemWindowsPattern,
-      '$1$3'
-    );
+  // Step 1: Add necessary imports (incremental - only add missing ones)
+  const importsToAdd = [
+    'import android.os.Build',
+    'import android.os.Handler',
+    'import android.os.Looper',
+    'import android.view.View',
+    'import android.view.ViewGroup',
+    'import android.webkit.WebView',
+    'import android.webkit.WebViewClient',
+    'import android.widget.ImageView'
+  ];
+  
+  if (edgeToEdgeEnabled !== true) {
+    importsToAdd.push('import androidx.core.view.WindowCompat');
   }
   
-  // Remove setupWebViewContainer call from onCreate
-  const onCreateMatch = modifiedContent.match(/override\s+fun\s+onCreate\s*\([^)]*\)\s*\{/);
-  if (onCreateMatch) {
-    const onCreateIndex = modifiedContent.indexOf(onCreateMatch[0]);
+  const missingImports = importsToAdd.filter(imp => !modifiedContent.includes(imp));
+  if (missingImports.length > 0) {
+    const lastImportIndex = modifiedContent.lastIndexOf('import ');
+    if (lastImportIndex !== -1) {
+      const nextLineIndex = modifiedContent.indexOf('\n', lastImportIndex);
+      if (nextLineIndex !== -1) {
+        const missingImportsText = missingImports.join('\n') + '\n';
+        modifiedContent = modifiedContent.substring(0, nextLineIndex + 1) +
+                         missingImportsText +
+                         modifiedContent.substring(nextLineIndex + 1);
+      }
+    }
+  }
+  
+  // Step 2: Check MainActivity class exists
+  const classMatch = modifiedContent.match(/class\s+MainActivity\s*[^:]*:/);
+  if (!classMatch) {
+    console.warn('[expo-splash-screen2] MainActivity class not found');
+    return modifiedContent;
+  }
+  
+  // Step 3: Add WebView container code (if not exists) - use template
+  const hasWebViewCode = modifiedContent.includes('setupWebViewContainer') || modifiedContent.includes('webViewContainer');
+  if (!hasWebViewCode) {
+    const webViewCode = replaceTemplatePlaceholders(ANDROID_TEMPLATES.mainActivityWebViewCode, {
+      backgroundColor: '#ffffff', // Not used in blend mode, but required by template
+    });
     
-    // Use smarter method to find onCreate method end position (match nested braces)
-    let braceCount = 0;
-    let onCreateEndIndex = onCreateIndex + onCreateMatch[0].length;
-    let foundStart = false;
+    // Insert WebView code into MainActivity class
+    const classIndex = modifiedContent.indexOf(classMatch[0]) + classMatch[0].length;
+    const afterClass = modifiedContent.substring(classIndex);
+    const companionObjectMatch = afterClass.match(/companion\s+object\s*\{/);
     
-    for (let i = onCreateIndex; i < modifiedContent.length; i++) {
-      if (modifiedContent[i] === '{') {
-        braceCount++;
-        foundStart = true;
-      } else if (modifiedContent[i] === '}') {
-        braceCount--;
-        if (foundStart && braceCount === 0) {
-          onCreateEndIndex = i + 1;
-          break;
+    if (companionObjectMatch) {
+      const companionIndex = classIndex + companionObjectMatch.index!;
+      modifiedContent = modifiedContent.substring(0, companionIndex) +
+                       webViewCode +
+                       '\n' +
+                       modifiedContent.substring(companionIndex);
+    } else {
+      const firstMethodMatch = afterClass.match(/\s+(override\s+)?fun\s+/);
+      if (firstMethodMatch) {
+        const insertIndex = classIndex + firstMethodMatch.index!;
+        modifiedContent = modifiedContent.substring(0, insertIndex) +
+                         webViewCode +
+                         '\n' +
+                         modifiedContent.substring(insertIndex);
+      } else {
+        const lastBraceIndex = modifiedContent.lastIndexOf('}');
+        modifiedContent = modifiedContent.substring(0, lastBraceIndex) +
+                         webViewCode +
+                         '\n' +
+                         modifiedContent.substring(lastBraceIndex);
+      }
+    }
+  }
+  
+  // Step 4: Handle onCreate method (incremental overlay mode)
+  const onCreatePattern = /override\s+fun\s+onCreate\s*\([^)]*\)\s*\{/;
+  const onCreateInfo = findMethodInsertPosition(modifiedContent, onCreatePattern, /super\.onCreate\([^)]*\)/);
+  
+  if (!onCreateInfo) {
+    // onCreate doesn't exist, add complete method (blend mode: no setTheme, only window settings)
+    let onCreateCode = `
+  override fun onCreate(savedInstanceState: Bundle?) {
+    super.onCreate(null)
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+      window.isNavigationBarContrastEnforced = false
+    }
+    window.statusBarColor = android.graphics.Color.TRANSPARENT
+    window.navigationBarColor = android.graphics.Color.TRANSPARENT
+  }`;
+    
+    // Fix onCreate format after insertion if needed
+    // This will be handled in the else block below
+    
+    // Find insertion point (before getMainComponentName or before companion object, but inside class)
+    const getMainComponentMatch = modifiedContent.match(/override\s+fun\s+getMainComponentName/);
+    const companionObjectMatch = modifiedContent.match(/companion\s+object\s*\{/);
+    
+    // Find class end brace (the closing brace of MainActivity class)
+    let classEndIndex = -1;
+    const classMatchForOnCreate = modifiedContent.match(/class\s+MainActivity\s*[^:]*:/);
+    if (classMatchForOnCreate) {
+      let braceCount = 0;
+      const classStartIndex = modifiedContent.indexOf(classMatchForOnCreate[0]);
+      let foundClassStart = false;
+      
+      for (let i = classStartIndex; i < modifiedContent.length; i++) {
+        if (modifiedContent[i] === '{') {
+          braceCount++;
+          foundClassStart = true;
+        } else if (modifiedContent[i] === '}') {
+          braceCount--;
+          if (foundClassStart && braceCount === 0) {
+            classEndIndex = i;
+            break;
+          }
         }
       }
     }
     
-    const onCreateContent = modifiedContent.substring(onCreateIndex, onCreateEndIndex);
-    let cleanedOnCreateContent = onCreateContent;
-    
-    // Check if WindowCompat and window settings exist
-    const hasWindowCompat = onCreateContent.includes('WindowCompat.setDecorFitsSystemWindows');
-    const hasSetupWebViewContainer = onCreateContent.includes('setupWebViewContainer');
-    const hasHandlerPost = onCreateContent.includes('Handler(Looper.getMainLooper()).post');
-    
-    // Remove setupWebViewContainer call and Handler.post from onCreate, but keep WindowCompat and window settings if edgeToEdgeEnabled !== true
-    if (hasSetupWebViewContainer || hasHandlerPost) {
-      // Remove Handler.post and setupWebViewContainer, but preserve WindowCompat and window settings
-      const lines = onCreateContent.split('\n');
-      const filteredLines: string[] = [];
-      let inHandlerBlock = false;
-      let handlerBraceCount = 0;
-      let foundHandlerStart = false;
-      
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        
-        // Check if this line starts the Handler block
-        if (!inHandlerBlock && line.includes('Handler(Looper.getMainLooper()).post')) {
-          inHandlerBlock = true;
-          foundHandlerStart = true;
-          continue; // Skip this line
-        }
-        
-        if (inHandlerBlock) {
-          // Count braces to find the end of Handler block
-          handlerBraceCount += (line.match(/\{/g) || []).length;
-          handlerBraceCount -= (line.match(/\}/g) || []).length;
-          
-          // If we've closed all braces (Handler block is complete), end the Handler block
-          if (handlerBraceCount <= 0) {
-            inHandlerBlock = false;
-            handlerBraceCount = 0;
-            foundHandlerStart = false;
-            continue; // Skip this line (the closing brace of Handler)
-          }
-          
-          // Skip this line (it's part of the Handler block)
-          continue;
-        }
-        
-        // Remove setupWebViewContainer call (but keep other lines)
-        if (line.includes('setupWebViewContainer')) {
-          continue; // Skip this line
-        }
-        
-        // Keep all other lines (including WindowCompat and window settings)
-        filteredLines.push(line);
+    if (getMainComponentMatch) {
+      const insertPos = modifiedContent.indexOf(getMainComponentMatch[0]);
+      // Ensure insertPos is before class end
+      if (classEndIndex === -1 || insertPos < classEndIndex) {
+        modifiedContent = modifiedContent.substring(0, insertPos) +
+                         onCreateCode + '\n\n' +
+                         modifiedContent.substring(insertPos);
+      } else {
+        // Insert before class end
+        modifiedContent = modifiedContent.substring(0, classEndIndex) +
+                         onCreateCode + '\n\n' +
+                         modifiedContent.substring(classEndIndex);
       }
-      
-      cleanedOnCreateContent = filteredLines.join('\n');
-    }
-    
-    // If edgeToEdgeEnabled !== true, ensure we have the three lines: WindowCompat and window settings
-    if (edgeToEdgeEnabled !== true) {
-      const hasWindowCompatAfterClean = cleanedOnCreateContent.includes('WindowCompat.setDecorFitsSystemWindows');
-      const hasStatusBarColor = cleanedOnCreateContent.includes('window.statusBarColor');
-      const hasNavigationBarColor = cleanedOnCreateContent.includes('window.navigationBarColor');
-      
-      // Check if we have isNavigationBarContrastEnforced
-      const hasIsNavigationBarContrastEnforced = cleanedOnCreateContent.includes('isNavigationBarContrastEnforced');
-      
-      // If we don't have all required code, add them
-      if (!hasWindowCompatAfterClean || !hasStatusBarColor || !hasNavigationBarColor || !hasIsNavigationBarContrastEnforced) {
-        // Remove any existing window settings and WindowCompat to avoid duplicates
-        cleanedOnCreateContent = cleanedOnCreateContent.replace(/\s*\/\/\s*Let content extend below status bar and navigation bar\s*\n\s*/g, '');
-        cleanedOnCreateContent = cleanedOnCreateContent.replace(/\s*WindowCompat\.setDecorFitsSystemWindows\(window,\s*false\)\s*\n?/g, '');
-        cleanedOnCreateContent = cleanedOnCreateContent.replace(/\s*if\s*\(Build\.VERSION\.SDK_INT\s*>=\s*Build\.VERSION_CODES\.Q\)\s*\{\s*\n\s*window\.isNavigationBarContrastEnforced\s*=\s*false\s*\n\s*\}\s*\n?/g, '');
-        cleanedOnCreateContent = cleanedOnCreateContent.replace(/\s*window\.statusBarColor\s*=\s*android\.graphics\.Color\.TRANSPARENT\s*\n?/g, '');
-        cleanedOnCreateContent = cleanedOnCreateContent.replace(/\s*window\.navigationBarColor\s*=\s*android\.graphics\.Color\.TRANSPARENT\s*\n?/g, '');
-        
-        // Add the window settings code (including isNavigationBarContrastEnforced) after super.onCreate
-        const superOnCreateIndex = cleanedOnCreateContent.indexOf('super.onCreate');
-        if (superOnCreateIndex !== -1) {
-          // Find the end of super.onCreate line (could be on same line as { or on next line)
-          let superOnCreateEndIndex = cleanedOnCreateContent.indexOf('\n', superOnCreateIndex);
-          if (superOnCreateEndIndex === -1) {
-            // If no newline found, find the closing brace or end of line
-            superOnCreateEndIndex = cleanedOnCreateContent.length;
-          } else {
-            superOnCreateEndIndex = superOnCreateEndIndex + 1; // Include the newline
+    } else if (companionObjectMatch) {
+      // Insert before companion object but inside class
+      const companionIndex = modifiedContent.indexOf(companionObjectMatch[0]);
+      if (classEndIndex === -1 || companionIndex < classEndIndex) {
+        modifiedContent = modifiedContent.substring(0, companionIndex) +
+                         onCreateCode + '\n\n' +
+                         modifiedContent.substring(companionIndex);
+      } else {
+        // Insert before class end
+        modifiedContent = modifiedContent.substring(0, classEndIndex) +
+                         onCreateCode + '\n\n' +
+                         modifiedContent.substring(classEndIndex);
+      }
+    } else if (classEndIndex !== -1) {
+      // Insert before class end brace
+      modifiedContent = modifiedContent.substring(0, classEndIndex) +
+                       onCreateCode + '\n\n' +
+                       modifiedContent.substring(classEndIndex);
+    } else {
+      // Fallback: find last method before class end
+      const lastMethodMatch = modifiedContent.match(/(override\s+fun\s+\w+[^}]*\{[^}]*\})/);
+      if (lastMethodMatch) {
+        const lastMethodEnd = modifiedContent.indexOf(lastMethodMatch[0]) + lastMethodMatch[0].length;
+        modifiedContent = modifiedContent.substring(0, lastMethodEnd) +
+                         '\n\n' + onCreateCode + '\n' +
+                         modifiedContent.substring(lastMethodEnd);
+      } else {
+        // Last resort: use last brace but ensure it's inside class
+        const lastBraceIndex = modifiedContent.lastIndexOf('}');
+        // Check if this brace is likely the class end
+        const beforeLastBrace = modifiedContent.substring(Math.max(0, lastBraceIndex - 100), lastBraceIndex);
+        if (beforeLastBrace.includes('class MainActivity') || beforeLastBrace.includes('override fun')) {
+          modifiedContent = modifiedContent.substring(0, lastBraceIndex) +
+                           onCreateCode + '\n' +
+                           modifiedContent.substring(lastBraceIndex);
+        } else {
+          // Find the class end brace more carefully
+          const classMatch = modifiedContent.match(/class\s+MainActivity\s*[^:]*:/);
+          if (classMatch) {
+            let braceCount = 0;
+            const classStart = modifiedContent.indexOf(classMatch[0]);
+            for (let i = classStart; i < modifiedContent.length; i++) {
+              if (modifiedContent[i] === '{') braceCount++;
+              if (modifiedContent[i] === '}') {
+                braceCount--;
+                if (braceCount === 0) {
+                  modifiedContent = modifiedContent.substring(0, i) +
+                                   onCreateCode + '\n' +
+                                   modifiedContent.substring(i);
+                  break;
+                }
+              }
+            }
           }
-          
+        }
+      }
+    }
+  } else {
+    // onCreate exists, insert plugin code after super.onCreate() if not exists (incremental overlay)
+    const onCreateContent = onCreateInfo.methodContent;
+    
+    // Remove setTheme(R.style.AppTheme) if exists (blend mode doesn't need it in onCreate)
+    const hasSetTheme = onCreateContent.includes('setTheme(R.style.AppTheme)');
+    if (hasSetTheme) {
+      const setThemeRegex = /(\s*\/\/\s*[^\n]*\n)*\s*setTheme\s*\(\s*R\.style\.AppTheme\s*\)\s*;?\s*\n?/g;
+      const cleanedOnCreateContent = onCreateContent.replace(setThemeRegex, '');
+      const onCreateStart = onCreateInfo.methodStart;
+      const onCreateEnd = onCreateStart + onCreateContent.length;
+      modifiedContent = modifiedContent.substring(0, onCreateStart) +
+                       cleanedOnCreateContent +
+                       modifiedContent.substring(onCreateEnd);
+      
+      // Recalculate onCreateInfo after removing setTheme
+      const updatedOnCreateInfo = findMethodInsertPosition(modifiedContent, onCreatePattern, /super\.onCreate\([^)]*\)/);
+      if (updatedOnCreateInfo) {
+        const updatedOnCreateContent = updatedOnCreateInfo.methodContent;
+        const needsWindowSettings = 
+          (!updatedOnCreateContent.includes('window.statusBarColor') || 
+           !updatedOnCreateContent.includes('window.navigationBarColor'));
+        
+        if (needsWindowSettings) {
           const windowSettingsCode = `
-    WindowCompat.setDecorFitsSystemWindows(window, false)
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
       window.isNavigationBarContrastEnforced = false
     }
     window.statusBarColor = android.graphics.Color.TRANSPARENT
     window.navigationBarColor = android.graphics.Color.TRANSPARENT`;
           
-          cleanedOnCreateContent = cleanedOnCreateContent.substring(0, superOnCreateEndIndex) +
+          modifiedContent = modifiedContent.substring(0, updatedOnCreateInfo.insertAfterSuper) +
                            windowSettingsCode + '\n' +
-                           cleanedOnCreateContent.substring(superOnCreateEndIndex);
+                           modifiedContent.substring(updatedOnCreateInfo.insertAfterSuper);
         }
+      }
+    } else {
+      // No setTheme, just check and add window settings if needed
+      const needsWindowSettings = 
+        (!onCreateContent.includes('window.statusBarColor') || 
+         !onCreateContent.includes('window.navigationBarColor'));
+      
+      if (needsWindowSettings) {
+        const windowSettingsCode = `
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+      window.isNavigationBarContrastEnforced = false
+    }
+    window.statusBarColor = android.graphics.Color.TRANSPARENT
+    window.navigationBarColor = android.graphics.Color.TRANSPARENT`;
+        
+        modifiedContent = modifiedContent.substring(0, onCreateInfo.insertAfterSuper) +
+                         windowSettingsCode + '\n' +
+                         modifiedContent.substring(onCreateInfo.insertAfterSuper);
       }
     }
     
-    if (cleanedOnCreateContent !== onCreateContent) {
-      modifiedContent = modifiedContent.substring(0, onCreateIndex) + 
-                       cleanedOnCreateContent + 
-                       modifiedContent.substring(onCreateEndIndex);
-    }
-  }
-
-  // Add ImageView container code (same as responsiveImage mode)
-  const classMatch = modifiedContent.match(/class\s+MainActivity\s*[^:]*:/);
-  if (!classMatch) {
-    console.warn('[expo-splash-screen2] MainActivity class not found');
-    return modifiedContent;
-  }
-
-  // Add necessary imports for ImageView container
-  const importsToAdd = [
-    'import android.os.Handler',
-    'import android.os.Looper',
-    'import android.view.View',
-    'import android.view.ViewGroup',
-    'import android.widget.ImageView'
-  ];
-  
-  let hasImports = importsToAdd.every(imp => modifiedContent.includes(imp));
-  
-  if (!hasImports) {
-    const missingImports = importsToAdd.filter(imp => !modifiedContent.includes(imp));
-    if (missingImports.length > 0) {
-      const lastImportIndex = modifiedContent.lastIndexOf('import ');
-      if (lastImportIndex !== -1) {
-        const nextLineIndex = modifiedContent.indexOf('\n', lastImportIndex);
-        if (nextLineIndex !== -1) {
-          const missingImportsText = missingImports.join('\n') + '\n';
-          modifiedContent = modifiedContent.substring(0, nextLineIndex + 1) +
-                           missingImportsText +
-                           modifiedContent.substring(nextLineIndex + 1);
-        }
+    // Fix onCreate format: ensure super.onCreate(null) is on a new line after {
+    const onCreateMatch = modifiedContent.match(/override\s+fun\s+onCreate\s*\([^)]*\)\s*\{[^\n]*super\.onCreate\(null\)/);
+    if (onCreateMatch) {
+      const onCreateIndex = modifiedContent.indexOf(onCreateMatch[0]);
+      const onCreateLine = modifiedContent.substring(onCreateIndex, onCreateIndex + onCreateMatch[0].length);
+      if (onCreateLine.includes('{super.onCreate(null)') || onCreateLine.includes('{super.onCreate(null)')) {
+        // Fix format: add newline after {
+        modifiedContent = modifiedContent.substring(0, onCreateIndex) +
+                         onCreateMatch[0].replace(/\{([^\n]*super\.onCreate\(null\))/, '{\n    $1') +
+                         modifiedContent.substring(onCreateIndex + onCreateMatch[0].length);
       }
     }
   }
-
-  // ImageView container code (same as responsiveImage mode)
-  const imageViewCode = `
+  
+  // Step 5: Handle onContentChanged method (incremental overlay mode)
+  const onContentChangedPattern = /override\s+fun\s+onContentChanged\s*\([^)]*\)\s*\{/;
+  const onContentChangedInfo = findMethodInsertPosition(modifiedContent, onContentChangedPattern, /super\.onContentChanged\([^)]*\)/);
+  
+  if (!onContentChangedInfo) {
+    // onContentChanged doesn't exist, add complete method after onCreate
+    const onCreateMatchForInsert = modifiedContent.match(/override\s+fun\s+onCreate\s*\([^)]*\)\s*\{/);
+    if (onCreateMatchForInsert) {
+      // Find all matches to get the correct one
+      let onCreateIndexForInsert = -1;
+      const allMatches: number[] = [];
+      let searchStart = 0;
+      while (true) {
+        const match = modifiedContent.substring(searchStart).match(/override\s+fun\s+onCreate\s*\([^)]*\)\s*\{/);
+        if (!match) break;
+        const matchIndex = searchStart + match.index!;
+        allMatches.push(matchIndex);
+        searchStart = matchIndex + match[0].length;
+      }
+      if (allMatches.length > 0) {
+        onCreateIndexForInsert = allMatches[allMatches.length - 1];
+      } else {
+        onCreateIndexForInsert = modifiedContent.indexOf(onCreateMatchForInsert[0]);
+      }
+      
+      // Find onCreate method end using brace matching
+      let braceCount = 0;
+      let onCreateEndIndexForInsert = onCreateIndexForInsert + onCreateMatchForInsert[0].length;
+      let foundStart = false;
+      
+      for (let i = onCreateIndexForInsert; i < modifiedContent.length; i++) {
+        if (modifiedContent[i] === '{') {
+          braceCount++;
+          foundStart = true;
+        } else if (modifiedContent[i] === '}') {
+          braceCount--;
+          if (foundStart && braceCount === 0) {
+            onCreateEndIndexForInsert = i + 1;
+            break;
+          }
+        }
+      }
+      
+      const onContentChangedCode = `
+  override fun onContentChanged() {
+    super.onContentChanged()
+    // 同步添加视图，避免在渲染过程中出现 null 引用导致崩溃
+    try {
+      setupSplashImageView()
+      setupWebViewContainer()
+    } catch (e: Exception) {
+      android.util.Log.e("MainActivity", "Error in onContentChanged", e)
+    }
+  }`;
+      
+      // Insert after onCreate method
+      modifiedContent = modifiedContent.substring(0, onCreateEndIndexForInsert) +
+                       '\n' + onContentChangedCode + '\n' +
+                       modifiedContent.substring(onCreateEndIndexForInsert);
+    } else {
+      // Fallback: insert before getMainComponentName
+      const getMainComponentMatch = modifiedContent.match(/override\s+fun\s+getMainComponentName/);
+      if (getMainComponentMatch) {
+        const insertPos = modifiedContent.indexOf(getMainComponentMatch[0]);
+        const onContentChangedCode = `
+  override fun onContentChanged() {
+    super.onContentChanged()
+    // 同步添加视图，避免在渲染过程中出现 null 引用导致崩溃
+    try {
+      setupSplashImageView()
+      setupWebViewContainer()
+    } catch (e: Exception) {
+      android.util.Log.e("MainActivity", "Error in onContentChanged", e)
+    }
+  }`;
+        modifiedContent = modifiedContent.substring(0, insertPos) +
+                         onContentChangedCode + '\n\n' +
+                         modifiedContent.substring(insertPos);
+      }
+    }
+  } else {
+    // onContentChanged exists, insert plugin code after super.onContentChanged() if not exists (incremental overlay)
+    const onContentChangedContent = onContentChangedInfo.methodContent;
+    const needsPluginCode = !onContentChangedContent.includes('setupSplashImageView()') ||
+                            !onContentChangedContent.includes('setupWebViewContainer()');
+    
+    if (needsPluginCode) {
+      const pluginCode = `
+    // 同步添加视图，避免在渲染过程中出现 null 引用导致崩溃
+    try {
+      setupSplashImageView()
+      setupWebViewContainer()
+    } catch (e: Exception) {
+      android.util.Log.e("MainActivity", "Error in onContentChanged", e)
+    }`;
+      
+      modifiedContent = modifiedContent.substring(0, onContentChangedInfo.insertAfterSuper) +
+                       pluginCode + '\n' +
+                       modifiedContent.substring(onContentChangedInfo.insertAfterSuper);
+    }
+  }
+  
+  // Step 6: Add ImageView container code (if not exists)
+  if (!modifiedContent.includes('splashImageViewContainer')) {
+    const imageViewCode = `
   private var splashImageViewContainer: ViewGroup? = null
   private var preventAutoHideImageView = false
 
@@ -2549,49 +2800,61 @@ function modifyMainActivityForBlendMode(content: string, packageName: string, im
       android.util.Log.e("MainActivity", "Error hiding splash ImageView container", e)
     }
   }`;
-
-  // Insert ImageView container code into MainActivity class
-  // Ensure it's inserted at class level, not inside companion object
-  const classIndex = modifiedContent.indexOf(classMatch[0]) + classMatch[0].length;
-  const afterClass = modifiedContent.substring(classIndex);
-  
-  // Check if companion object exists
-  const companionObjectMatch = afterClass.match(/companion\s+object\s*\{/);
-  
-  if (companionObjectMatch) {
-    // If companion object exists, insert before it
-    const companionIndex = classIndex + companionObjectMatch.index!;
-    modifiedContent = modifiedContent.substring(0, companionIndex) +
-                     imageViewCode +
-                     '\n' +
-                     modifiedContent.substring(companionIndex);
-  } else {
-    // If no companion object, find first method or property
-    const firstMethodMatch = afterClass.match(/\s+(override\s+)?fun\s+/);
     
-    if (firstMethodMatch) {
-      const insertIndex = classIndex + firstMethodMatch.index!;
-      modifiedContent = modifiedContent.substring(0, insertIndex) +
+    // Insert ImageView container code into MainActivity class
+    const classIndex = modifiedContent.indexOf(classMatch[0]) + classMatch[0].length;
+    const afterClass = modifiedContent.substring(classIndex);
+    const companionObjectMatch = afterClass.match(/companion\s+object\s*\{/);
+    
+    if (companionObjectMatch) {
+      const companionIndex = classIndex + companionObjectMatch.index!;
+      modifiedContent = modifiedContent.substring(0, companionIndex) +
                        imageViewCode +
                        '\n' +
-                       modifiedContent.substring(insertIndex);
+                       modifiedContent.substring(companionIndex);
     } else {
-      const lastBraceIndex = modifiedContent.lastIndexOf('}');
-      modifiedContent = modifiedContent.substring(0, lastBraceIndex) +
-                       imageViewCode +
-                       '\n' +
-                       modifiedContent.substring(lastBraceIndex);
+      // Find first method or property to insert before it
+      // Match: fun, override fun, private var, var, etc.
+      const firstMethodMatch = afterClass.match(/\s+(override\s+)?fun\s+|\s+private\s+var\s+|\s+var\s+|\s+val\s+/);
+      if (firstMethodMatch) {
+        const insertIndex = classIndex + firstMethodMatch.index!;
+        // Check if we're inserting right after "private" (which would cause duplicate "private")
+        const beforeInsert = modifiedContent.substring(Math.max(0, insertIndex - 20), insertIndex);
+        if (beforeInsert.trimEnd().endsWith('private')) {
+          // Insert after the line break to avoid duplicate "private"
+          const lineBreakIndex = modifiedContent.lastIndexOf('\n', insertIndex - 1);
+          if (lineBreakIndex !== -1) {
+            modifiedContent = modifiedContent.substring(0, lineBreakIndex + 1) +
+                             imageViewCode +
+                             '\n' +
+                             modifiedContent.substring(lineBreakIndex + 1);
+          } else {
+            modifiedContent = modifiedContent.substring(0, insertIndex) +
+                             imageViewCode +
+                             '\n' +
+                             modifiedContent.substring(insertIndex);
+          }
+        } else {
+          modifiedContent = modifiedContent.substring(0, insertIndex) +
+                           imageViewCode +
+                           '\n' +
+                           modifiedContent.substring(insertIndex);
+        }
+      } else {
+        const lastBraceIndex = modifiedContent.lastIndexOf('}');
+        modifiedContent = modifiedContent.substring(0, lastBraceIndex) +
+                         imageViewCode +
+                         '\n' +
+                         modifiedContent.substring(lastBraceIndex);
+      }
     }
   }
-
-  // Modify preventAutoHide to also show ImageView container
-  // Use precise matching to find the entire method including nested braces
+  
+  // Step 7: Update preventAutoHide method to also handle ImageView container (if exists)
   const preventAutoHideMethodStart = modifiedContent.indexOf('fun preventAutoHide()');
   if (preventAutoHideMethodStart !== -1) {
-    // Find the method signature end
     const methodSignatureEnd = modifiedContent.indexOf('{', preventAutoHideMethodStart);
     if (methodSignatureEnd !== -1) {
-      // Match nested braces to find the complete method
       let braceCount = 0;
       let methodEnd = methodSignatureEnd + 1;
       let foundStart = false;
@@ -2609,37 +2872,59 @@ function modifyMainActivityForBlendMode(content: string, packageName: string, im
         }
       }
       
-      const preventAutoHideCode = `
-  fun preventAutoHide() {
-    runOnUiThread {
-      preventAutoHide = true
-      preventAutoHideImageView = true
-      android.util.Log.d("MainActivity", "preventAutoHide called, preventAutoHide: $preventAutoHide, preventAutoHideImageView: $preventAutoHideImageView")
+      const preventAutoHideContent = modifiedContent.substring(preventAutoHideMethodStart, methodEnd);
+      const needsImageViewSupport = !preventAutoHideContent.includes('preventAutoHideImageView') ||
+                                    !preventAutoHideContent.includes('setupSplashImageView()');
+      
+      if (needsImageViewSupport) {
+        // Check if there's already a log statement with preventAutoHide
+        const existingLogMatch = preventAutoHideContent.match(/android\.util\.Log\.d\s*\(\s*"MainActivity"\s*,\s*"preventAutoHide called[^"]*"\s*\)/);
+        
+        // Insert ImageView support code after preventAutoHide = true
+        const preventAutoHideIndex = preventAutoHideContent.indexOf('preventAutoHide = true');
+        if (preventAutoHideIndex !== -1) {
+          const afterPreventAutoHide = preventAutoHideContent.indexOf('\n', preventAutoHideIndex);
+          const insertPos = preventAutoHideMethodStart + (afterPreventAutoHide !== -1 ? afterPreventAutoHide + 1 : preventAutoHideIndex + 'preventAutoHide = true'.length);
+          
+          let imageViewSupportCode = `
+      preventAutoHideImageView = true`;
+          
+          // Only add log if there's no existing log, or replace existing log
+          if (existingLogMatch) {
+            // Replace existing log with updated one
+            const existingLogIndex = preventAutoHideMethodStart + preventAutoHideContent.indexOf(existingLogMatch[0]);
+            const existingLogEnd = existingLogIndex + existingLogMatch[0].length;
+            const updatedLog = `android.util.Log.d("MainActivity", "preventAutoHide called, preventAutoHide: $preventAutoHide, preventAutoHideImageView: $preventAutoHideImageView")`;
+            modifiedContent = modifiedContent.substring(0, existingLogIndex) +
+                             updatedLog +
+                             modifiedContent.substring(existingLogEnd);
+          } else {
+            // Add new log
+            imageViewSupportCode += `
+      android.util.Log.d("MainActivity", "preventAutoHide called, preventAutoHide: $preventAutoHide, preventAutoHideImageView: $preventAutoHideImageView")`;
+          }
+          
+          imageViewSupportCode += `
       // Show ImageView container
       Handler(Looper.getMainLooper()).post {
         setupSplashImageView()
+      }`;
+          
+          modifiedContent = modifiedContent.substring(0, insertPos) +
+                           imageViewSupportCode + '\n' +
+                           modifiedContent.substring(insertPos);
+        }
       }
-      // If WebView container doesn't exist, create it
-      if (webViewContainer == null) {
-        android.util.Log.d("MainActivity", "WebView container is null, creating it")
-        setupWebViewContainer()
-      }
-    }
-  }`;
-      modifiedContent = modifiedContent.substring(0, preventAutoHideMethodStart) +
-                       preventAutoHideCode +
-                       modifiedContent.substring(methodEnd);
     }
   }
-
-  // Modify hideWebViewContainerInternal to also hide ImageView container
-  // Use more precise matching to find the entire method including nested braces
+  
+  // Step 8: Update hideWebViewContainerInternal to use safe methods and correct order
+  // Strategy: Find the method, replace specific parts step by step with simple string operations
   const hideWebViewMethodStart = modifiedContent.indexOf('private fun hideWebViewContainerInternal');
   if (hideWebViewMethodStart !== -1) {
-    // Find the method signature end
     const methodSignatureEnd = modifiedContent.indexOf('{', hideWebViewMethodStart);
     if (methodSignatureEnd !== -1) {
-      // Match nested braces to find the complete method
+      // Find method end by matching braces
       let braceCount = 0;
       let methodEnd = methodSignatureEnd + 1;
       let foundStart = false;
@@ -2657,27 +2942,80 @@ function modifyMainActivityForBlendMode(content: string, packageName: string, im
         }
       }
       
-      const hideWebViewMatch = [modifiedContent.substring(hideWebViewMethodStart, methodEnd)];
-      if (hideWebViewMatch[0]) {
-    const hideWebViewCode = `
-  private fun hideWebViewContainerInternal(force: Boolean = false) {
-    try {
-      android.util.Log.d("MainActivity", "hideWebViewContainer called, force=$force, preventAutoHide=$preventAutoHide, webViewContainer=\${webViewContainer != null}")
-
-      // If preventAutoHide is true and not force hide, don't execute hide operation
-      if (preventAutoHide && !force) {
-        android.util.Log.d("MainActivity", "hideWebViewContainer prevented by preventAutoHide flag")
-        return
+      let methodContent = modifiedContent.substring(hideWebViewMethodStart, methodEnd);
+      let needsUpdate = false;
+      
+      // Fix 1: Replace webViewContainer?.visibility = View.GONE with safeSetVisibility
+      if (methodContent.includes('webViewContainer?.visibility = View.GONE') && 
+          !methodContent.includes('safeSetVisibility(webViewContainer')) {
+        // Find and replace the visibility line, ensuring proper formatting
+        const visibilityIndex = methodContent.indexOf('webViewContainer?.visibility = View.GONE');
+        if (visibilityIndex !== -1) {
+          // Find the start of this section (after "First set visibility" comment)
+          const commentStart = methodContent.lastIndexOf('// First set visibility', visibilityIndex);
+          const lineStart = commentStart !== -1 ? commentStart : methodContent.lastIndexOf('\n', visibilityIndex) + 1;
+          
+          // Find where the next comment or code starts (after this line)
+          let lineEnd = methodContent.indexOf('\n', visibilityIndex);
+          if (lineEnd === -1) {
+            lineEnd = methodContent.length;
+          } else {
+            lineEnd += 1; // Include the newline
+          }
+          
+          // Check if there's a comment on the same line that needs to be moved
+          const lineContent = methodContent.substring(visibilityIndex, lineEnd);
+          const hasInlineComment = lineContent.includes('//');
+          
+          // Get indentation
+          const indent = '        ';
+          
+          if (hasInlineComment && lineContent.includes('// Try to remove')) {
+            // The comment is on the same line, move it to next line
+            methodContent = methodContent.substring(0, lineStart) +
+                           indent + '// First set visibility to GONE to ensure invisible\n' +
+                           indent + 'safeSetVisibility(webViewContainer, View.GONE, "WebView container")\n' +
+                           indent + '// Try to remove from parent view with validation\n' +
+                           methodContent.substring(lineEnd);
+          } else {
+            // Simple replacement
+            methodContent = methodContent.substring(0, lineStart) +
+                           indent + '// First set visibility to GONE to ensure invisible\n' +
+                           indent + 'safeSetVisibility(webViewContainer, View.GONE, "WebView container")\n' +
+                           methodContent.substring(lineEnd);
+          }
+          needsUpdate = true;
+        }
       }
-
-      // Hide WebView container
-      if (webViewContainer != null) {
-        android.util.Log.d("MainActivity", "Hiding MainActivity WebView container")
-
-        // First set visibility to GONE to ensure invisible
-        safeSetVisibility(webViewContainer, View.GONE, "WebView container")
-
-        // Try to remove from parent view with validation
+      
+      // Fix 2: Replace parent.removeView with safeRemoveViewFromParent
+      if (methodContent.includes('parent.removeView(webViewContainer)') && 
+          !methodContent.includes('safeRemoveViewFromParent(webViewContainer')) {
+        // Find the start of remove logic (after safeSetVisibility line)
+        const visibilityLineEnd = methodContent.indexOf('safeSetVisibility(webViewContainer');
+        const removeStart = visibilityLineEnd !== -1 ? 
+          methodContent.indexOf('// Try to remove', visibilityLineEnd) : 
+          methodContent.indexOf('// Try to remove from parent view');
+        
+        // Find the end: before "// Clean up all child views"
+        const removeEnd = methodContent.indexOf('// Clean up all child views');
+        
+        if (removeStart !== -1 && removeEnd !== -1 && removeEnd > removeStart) {
+          // Find the actual end of the else block (before "Clean up")
+          let actualEnd = removeEnd;
+          // Go back to find the closing brace of else block
+          const beforeCleanup = methodContent.substring(Math.max(0, removeEnd - 200), removeEnd);
+          const lastBraceBeforeCleanup = beforeCleanup.lastIndexOf('}');
+          if (lastBraceBeforeCleanup !== -1) {
+            // Find the newline after the closing brace
+            const bracePos = removeEnd - 200 + lastBraceBeforeCleanup;
+            const newlineAfterBrace = methodContent.indexOf('\n', bracePos);
+            if (newlineAfterBrace !== -1 && newlineAfterBrace < removeEnd) {
+              actualEnd = newlineAfterBrace + 1;
+            }
+          }
+          
+          const safeRemoveCode = `        // Try to remove from parent view with validation
         val parent = webViewContainer?.parent as? ViewGroup
         if (parent != null) {
           val removed = safeRemoveViewFromParent(webViewContainer, parent, "WebView container")
@@ -2705,340 +3043,124 @@ function modifyMainActivityForBlendMode(content: string, packageName: string, im
             android.util.Log.e("MainActivity", "Error removing WebView container from decorView", e)
           }
         }
-
-        // Clean up all child views
-        try {
-          webViewContainer?.removeAllViews()
-        } catch (e: Exception) {
-          android.util.Log.e("MainActivity", "Error removing all views from WebView container", e)
+        
+`;
+          
+          methodContent = methodContent.substring(0, removeStart) +
+                         safeRemoveCode +
+                         methodContent.substring(actualEnd);
+          needsUpdate = true;
         }
-
-        // Clear reference
-        webViewContainer = null
-        android.util.Log.d("MainActivity", "MainActivity WebView container hidden and removed")
-      } else {
-        android.util.Log.d("MainActivity", "MainActivity WebView container is null, skipping")
       }
-
-      // Also hide ImageView container
-      hideSplashImageViewContainer(force)
-
-      // Also hide SplashScreen2Activity's WebView container
-      // Even if SplashScreen2Activity has finish(), instance may still exist, container may still be on window
-      try {
-        val customSplashActivity = SplashScreen2Activity.getInstance()
-        if (customSplashActivity != null) {
-          android.util.Log.d("MainActivity", "Hiding SplashScreen2Activity WebView container")
-          customSplashActivity.hideWebViewContainer(force)
-        } else {
-          android.util.Log.d("MainActivity", "SplashScreen2Activity instance is null (already finished or not created)")
+      
+      // Fix 3: Insert ImageView container hide BEFORE SplashScreen2Activity handling
+      const needsImageViewHide = !methodContent.includes('hideSplashImageViewContainer');
+      const hasSplashScreen2Activity = methodContent.includes('// Also hide SplashScreen2Activity');
+      
+      if (needsImageViewHide && hasSplashScreen2Activity) {
+        const splashScreen2Index = methodContent.indexOf('// Also hide SplashScreen2Activity');
+        methodContent = methodContent.substring(0, splashScreen2Index) +
+                       '\n\n      // Also hide ImageView container\n' +
+                       '      hideSplashImageViewContainer(force)\n' +
+                       methodContent.substring(splashScreen2Index);
+        needsUpdate = true;
+      } else if (needsImageViewHide && !hasSplashScreen2Activity) {
+        // Insert after WebView cleanup, before preventAutoHide
+        const preventAutoHideIndex = methodContent.indexOf('preventAutoHide = false');
+        if (preventAutoHideIndex !== -1) {
+          const insertPos = methodContent.lastIndexOf('\n', preventAutoHideIndex);
+          methodContent = methodContent.substring(0, insertPos !== -1 ? insertPos + 1 : preventAutoHideIndex) +
+                         '\n      // Also hide ImageView container\n' +
+                         '      hideSplashImageViewContainer(force)\n' +
+                         methodContent.substring(insertPos !== -1 ? insertPos + 1 : preventAutoHideIndex);
+          needsUpdate = true;
         }
-      } catch (e: Exception) {
-        android.util.Log.d("MainActivity", "SplashScreen2Activity not available: " + e.message)
       }
-
-      // Manually set MainActivity theme to @style/AppTheme after hiding splash screen
-      try {
-        setTheme(R.style.AppTheme)
-        android.util.Log.d("MainActivity", "MainActivity theme set to @style/AppTheme")
-      } catch (e: Exception) {
-        android.util.Log.e("MainActivity", "Error setting theme to AppTheme", e)
+      
+      // Fix 4: Add theme setting before preventAutoHide = false
+      const needsThemeSetting = !methodContent.includes('setTheme(R.style.AppTheme)');
+      if (needsThemeSetting) {
+        const preventAutoHideIndex = methodContent.indexOf('preventAutoHide = false');
+        if (preventAutoHideIndex !== -1) {
+          const lineStart = methodContent.lastIndexOf('\n', preventAutoHideIndex) + 1;
+          const lineEnd = methodContent.indexOf('\n', preventAutoHideIndex);
+          const actualLineEnd = lineEnd !== -1 ? lineEnd : preventAutoHideIndex + 'preventAutoHide = false'.length;
+          
+          methodContent = methodContent.substring(0, lineStart) +
+                         '\n      // Manually set MainActivity theme to @style/AppTheme after hiding splash screen\n' +
+                         '      try {\n' +
+                         '        setTheme(R.style.AppTheme)\n' +
+                         '        android.util.Log.d("MainActivity", "MainActivity theme set to @style/AppTheme")\n' +
+                         '      } catch (e: Exception) {\n' +
+                         '        android.util.Log.e("MainActivity", "Error setting theme to AppTheme", e)\n' +
+                         '      }\n' +
+                         '\n      // Reset preventAutoHide flag (regardless of whether hide was successful)\n' +
+                         '      preventAutoHide = false\n' +
+                         methodContent.substring(actualLineEnd);
+          needsUpdate = true;
+        }
       }
-
-      // Reset preventAutoHide flag (regardless of whether hide was successful)
-      preventAutoHide = false
-      android.util.Log.d("MainActivity", "preventAutoHide reset to false")
-    } catch (e: Exception) {
-      android.util.Log.e("MainActivity", "Error hiding WebView container", e)
-      e.printStackTrace()
-      // Even if error occurs, reset preventAutoHide
-      preventAutoHide = false
-    }
-  }`;
+      
+      // Update the method if changed
+      if (needsUpdate) {
         modifiedContent = modifiedContent.substring(0, hideWebViewMethodStart) +
-                         hideWebViewCode +
+                         methodContent +
                          modifiedContent.substring(methodEnd);
       }
     }
   }
-
-  // Add onContentChanged method to call both setupSplashImageView and setupWebViewContainer
-  // 同步添加视图，避免在渲染过程中出现 null 引用导致崩溃
-  const onContentChangedCode = `
-  override fun onContentChanged() {
-    super.onContentChanged()
-    // 同步添加视图，避免在渲染过程中出现 null 引用导致崩溃
-    try {
-      setupSplashImageView()
-      setupWebViewContainer()
-    } catch (e: Exception) {
-      android.util.Log.e("MainActivity", "Error in onContentChanged", e)
+  
+  // Step 9: Add companion object with actionStart method (if not exists)
+  const hasCompanionObject = modifiedContent.includes('companion object') && modifiedContent.includes('actionStart');
+  if (!hasCompanionObject) {
+    const companionObjectCode = `
+  companion object {
+    fun actionStart(context: android.content.Context) {
+      val intent = android.content.Intent(context, MainActivity::class.java)
+      context.startActivity(intent)
+      // Add fade-in fade-out animation effect
+      if (context is android.app.Activity) {
+        context.overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out)
+      }
     }
   }`;
-
-  // Ensure onCreate has transparent status bar and navigation bar settings
-  // Also ensure onCreate method is properly formatted (not compressed to one line)
-  const onCreateMatchForStatusBar = modifiedContent.match(/override\s+fun\s+onCreate\s*\([^)]*\)\s*\{/);
-  if (onCreateMatchForStatusBar) {
-    // Find all matches to get the correct one (in case there are multiple matches)
-    // Use the last match (most likely the correct one in MainActivity class)
-    let onCreateIndex = -1;
-    const allOnCreateMatches: number[] = [];
-    let searchStart = 0;
-    while (true) {
-      const match = modifiedContent.substring(searchStart).match(/override\s+fun\s+onCreate\s*\([^)]*\)\s*\{/);
-      if (!match) break;
-      const matchIndex = searchStart + match.index!;
-      allOnCreateMatches.push(matchIndex);
-      searchStart = matchIndex + match[0].length;
-    }
-    // Use the last match (most likely the correct one in MainActivity class)
-    if (allOnCreateMatches.length > 0) {
-      onCreateIndex = allOnCreateMatches[allOnCreateMatches.length - 1];
-    } else {
-      onCreateIndex = modifiedContent.indexOf(onCreateMatchForStatusBar[0]);
-    }
     
-    // Check indentation: find the line start before onCreateIndex
-    const lineStartIndex = modifiedContent.lastIndexOf('\n', onCreateIndex - 1) + 1;
-    const onCreateLinePrefix = modifiedContent.substring(lineStartIndex, onCreateIndex);
-    // Check if indentation is not exactly 2 spaces (class-level method should have 2 spaces)
-    const hasWrongIndentation = onCreateLinePrefix !== '  ';
-    
-    // Find onCreate method end
-    let braceCount = 0;
-    let onCreateEndIndex = onCreateIndex + onCreateMatchForStatusBar[0].length;
-    let foundStart = false;
-    
-    for (let i = onCreateIndex; i < modifiedContent.length; i++) {
-      if (modifiedContent[i] === '{') {
-        braceCount++;
-        foundStart = true;
-      } else if (modifiedContent[i] === '}') {
-        braceCount--;
-        if (foundStart && braceCount === 0) {
-          onCreateEndIndex = i + 1;
-          break;
-        }
-      }
-    }
-    
-    const onCreateContent = modifiedContent.substring(onCreateIndex, onCreateEndIndex);
-    
-    // Check if onCreate has format issues: {super.onCreate(...) on the same line as {
-    // Pattern: override fun onCreate(...) {super.onCreate(...)
-    // More accurate: check if there's no newline between { and super.onCreate
-    const openBraceIndex = onCreateContent.indexOf('{');
-    const superOnCreateIndex = onCreateContent.indexOf('super.onCreate');
-    const betweenBraceAndSuper = onCreateContent.substring(openBraceIndex + 1, superOnCreateIndex);
-    const hasFormatIssue = openBraceIndex !== -1 && 
-                          superOnCreateIndex !== -1 &&
-                          openBraceIndex < superOnCreateIndex &&
-                          !betweenBraceAndSuper.includes('\n') &&
-                          !onCreateContent.includes('\n    super.onCreate') &&
-                          !onCreateContent.includes('\n    super.onCreate(null)');
-    
-    // Check if onCreate is compressed to one line (contains multiple statements without proper newlines)
-    // Pattern: override fun onCreate(...) {super.onCreate(...)window.statusBarColor = ... window.navigationBarColor = ...}
-    const isCompressed = /override\s+fun\s+onCreate\s*\([^)]*\)\s*\{[^}]*super\.onCreate[^}]*window\.statusBarColor[^}]*window\.navigationBarColor[^}]*\}/.test(onCreateContent) &&
-                        !onCreateContent.includes('\n    super.onCreate') &&
-                        !onCreateContent.includes('\n    window.statusBarColor');
-    
-    if (hasFormatIssue || isCompressed || hasWrongIndentation) {
-      // Extract all window settings from onCreate
-      const superOnCreateMatch = onCreateContent.match(/super\.onCreate\([^)]*\)/);
-      const windowCompatMatch = onCreateContent.match(/WindowCompat\.setDecorFitsSystemWindows\(window,\s*false\)/);
-      const isNavigationBarContrastEnforcedMatch = onCreateContent.match(/if\s*\(Build\.VERSION\.SDK_INT\s*>=\s*Build\.VERSION_CODES\.Q\)\s*\{[\s\S]*?window\.isNavigationBarContrastEnforced\s*=\s*false[\s\S]*?\}/);
-      const statusBarMatch = onCreateContent.match(/window\.statusBarColor\s*=\s*[^}\n]+/);
-      const navBarMatch = onCreateContent.match(/window\.navigationBarColor\s*=\s*[^}\n]+/);
-      
-      if (superOnCreateMatch) {
-        // Use 2 spaces for class-level method indentation (standard Kotlin style)
-        const indentation = '  ';
-        
-        // Build properly formatted onCreate method with correct indentation
-        let formattedOnCreate = `${indentation}override fun onCreate(savedInstanceState: Bundle?) {
-${indentation}  ${superOnCreateMatch[0]}`;
-        
-        if (windowCompatMatch) {
-          formattedOnCreate += `\n${indentation}  WindowCompat.setDecorFitsSystemWindows(window, false)`;
-        }
-        
-        if (isNavigationBarContrastEnforcedMatch) {
-          formattedOnCreate += `\n${indentation}  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-${indentation}    window.isNavigationBarContrastEnforced = false
-${indentation}  }`;
-        }
-        
-        if (statusBarMatch) {
-          formattedOnCreate += `\n${indentation}  ${statusBarMatch[0].replace(/[}]/g, '').trim()}`;
-        }
-        
-        if (navBarMatch) {
-          formattedOnCreate += `\n${indentation}  ${navBarMatch[0].replace(/[}]/g, '').trim()}`;
-        }
-        
-        formattedOnCreate += `\n${indentation}}`;
-        
-        modifiedContent = modifiedContent.substring(0, onCreateIndex) +
-                         formattedOnCreate +
-                         modifiedContent.substring(onCreateEndIndex);
-      }
-    } else {
-      // Check if statusBarColor and navigationBarColor are already set
-      const hasStatusBarColor = onCreateContent.includes('window.statusBarColor');
-      const hasNavigationBarColor = onCreateContent.includes('window.navigationBarColor');
-      
-      if (!hasStatusBarColor || !hasNavigationBarColor) {
-        // Find super.onCreate call
-        const superOnCreateMatch = onCreateContent.match(/super\.onCreate\([^)]*\)/);
-        if (superOnCreateMatch) {
-          const superOnCreateEndIndex = onCreateContent.indexOf(superOnCreateMatch[0]) + superOnCreateMatch[0].length;
-          const nextLineIndex = onCreateContent.indexOf('\n', superOnCreateEndIndex);
-          const insertPos = onCreateIndex + (nextLineIndex !== -1 ? nextLineIndex + 1 : superOnCreateEndIndex);
-          
-          const statusBarCode = `
-    window.statusBarColor = android.graphics.Color.TRANSPARENT
-    window.navigationBarColor = android.graphics.Color.TRANSPARENT`;
-          
-          modifiedContent = modifiedContent.substring(0, insertPos) +
-                           statusBarCode + '\n' +
-                           modifiedContent.substring(insertPos);
-        }
-      }
-    }
-  }
-
-  // Check if onContentChanged already exists
-  if (!modifiedContent.includes('override fun onContentChanged()')) {
-    // Find a good place to insert onContentChanged (after onCreate or before getMainComponentName)
-    // Use precise matching to find onCreate method end
-    const onCreateMatchForInsert = modifiedContent.match(/override\s+fun\s+onCreate\s*\([^)]*\)\s*\{/);
-    if (onCreateMatchForInsert) {
-      // Find all matches to get the correct one (in case there are multiple matches)
-      let onCreateIndexForInsert = -1;
-      const allMatches: number[] = [];
-      let searchStart = 0;
-      while (true) {
-        const match = modifiedContent.substring(searchStart).match(/override\s+fun\s+onCreate\s*\([^)]*\)\s*\{/);
-        if (!match) break;
-        const matchIndex = searchStart + match.index!;
-        allMatches.push(matchIndex);
-        searchStart = matchIndex + match[0].length;
-      }
-      // Use the last match (most likely the correct one in MainActivity class)
-      if (allMatches.length > 0) {
-        onCreateIndexForInsert = allMatches[allMatches.length - 1];
-      } else {
-        onCreateIndexForInsert = modifiedContent.indexOf(onCreateMatchForInsert[0]);
-      }
-      
-      // Find onCreate method end using brace matching
+    // Find the last closing brace of the class (before any nested classes or companion objects)
+    const classMatchForCompanion = modifiedContent.match(/class\s+MainActivity\s*[^:]*:/);
+    if (classMatchForCompanion) {
       let braceCount = 0;
-      let onCreateEndIndexForInsert = onCreateIndexForInsert + onCreateMatchForInsert[0].length;
-      let foundStart = false;
+      const classStartIndex = modifiedContent.indexOf(classMatchForCompanion[0]);
+      let foundClassStart = false;
+      let classEndIndex = -1;
       
-      for (let i = onCreateIndexForInsert; i < modifiedContent.length; i++) {
+      for (let i = classStartIndex; i < modifiedContent.length; i++) {
         if (modifiedContent[i] === '{') {
           braceCount++;
-          foundStart = true;
+          foundClassStart = true;
         } else if (modifiedContent[i] === '}') {
           braceCount--;
-          if (foundStart && braceCount === 0) {
-            onCreateEndIndexForInsert = i + 1;
+          if (foundClassStart && braceCount === 0) {
+            classEndIndex = i;
             break;
           }
         }
       }
       
-      // Insert after onCreate method
-      // onCreateEndIndexForInsert points to the character after the closing brace of onCreate
-      // Insert onContentChanged right after onCreate method
-      modifiedContent = modifiedContent.substring(0, onCreateEndIndexForInsert) +
-                       '\n' + onContentChangedCode + '\n' +
-                       modifiedContent.substring(onCreateEndIndexForInsert);
-      
-      // After inserting onContentChanged, check if there are duplicate closing braces
-      // Use brace matching to find the true end of onContentChanged method
-      const onContentChangedMethodStart = modifiedContent.indexOf('override fun onContentChanged()');
-      if (onContentChangedMethodStart !== -1) {
-        const methodSignatureEnd = modifiedContent.indexOf('{', onContentChangedMethodStart);
-        if (methodSignatureEnd !== -1) {
-          // Match nested braces to find the complete method
-          let braceCount = 0;
-          let methodEnd = methodSignatureEnd + 1;
-          let foundStart = false;
-          
-          for (let i = methodSignatureEnd; i < modifiedContent.length; i++) {
-            if (modifiedContent[i] === '{') {
-              braceCount++;
-              foundStart = true;
-            } else if (modifiedContent[i] === '}') {
-              braceCount--;
-              if (foundStart && braceCount === 0) {
-                methodEnd = i + 1;
-                break;
-              }
-            }
-          }
-          
-          // Now check if there's a duplicate closing brace after methodEnd
-          // Look at the next few characters after methodEnd
-          const afterOnContentChanged = modifiedContent.substring(methodEnd);
-          const trimmedAfter = afterOnContentChanged.trimStart();
-          
-          // More precise check: if the next non-whitespace character is a closing brace
-          // and it's on its own line (or immediately after whitespace), it's likely a duplicate
-          if (trimmedAfter.startsWith('}')) {
-            // Check if this closing brace is on its own line or immediately after the method
-            // If it's followed by a newline and then another method/comment, it's likely a duplicate
-            const duplicateBracePos = methodEnd + afterOnContentChanged.indexOf('}');
-            const afterDuplicateBrace = modifiedContent.substring(duplicateBracePos + 1).trimStart();
-            
-            // If after the duplicate brace, we see a comment (/**) or another method (override fun),
-            // then it's definitely a duplicate that should be removed
-            if (afterDuplicateBrace.startsWith('/**') || 
-                afterDuplicateBrace.match(/^\s*override\s+fun/) ||
-                afterDuplicateBrace.startsWith('companion object')) {
-              // Find the end of the duplicate brace line (including newline)
-              let removeEndIndex = duplicateBracePos + 1;
-              // Skip whitespace after the duplicate brace
-              while (removeEndIndex < modifiedContent.length && 
-                     (modifiedContent[removeEndIndex] === ' ' || modifiedContent[removeEndIndex] === '\t')) {
-                removeEndIndex++;
-              }
-              // Skip newline after the duplicate brace
-              if (removeEndIndex < modifiedContent.length && modifiedContent[removeEndIndex] === '\n') {
-                removeEndIndex++;
-              }
-              // Remove the duplicate closing brace and its surrounding whitespace
-              modifiedContent = modifiedContent.substring(0, methodEnd) +
-                               modifiedContent.substring(removeEndIndex);
-            }
-          }
-        }
-      }
-    } else {
-      // Fallback: insert before getMainComponentName
-      const getMainComponentMatch = modifiedContent.match(/override\s+fun\s+getMainComponentName/);
-      if (getMainComponentMatch) {
-        const insertPos = modifiedContent.indexOf(getMainComponentMatch[0]);
-        modifiedContent = modifiedContent.substring(0, insertPos) +
-                         onContentChangedCode + '\n\n' +
-                         modifiedContent.substring(insertPos);
+      if (classEndIndex !== -1) {
+        // Insert companion object before the closing brace
+        modifiedContent = modifiedContent.substring(0, classEndIndex) +
+                         companionObjectCode +
+                         '\n' +
+                         modifiedContent.substring(classEndIndex);
+      } else {
+        // Fallback: use last brace
+        const lastBraceIndex = modifiedContent.lastIndexOf('}');
+        modifiedContent = modifiedContent.substring(0, lastBraceIndex) +
+                         companionObjectCode +
+                         '\n' +
+                         modifiedContent.substring(lastBraceIndex);
       }
     }
-  }
-  
-  // Fix companion object indentation (ensure it has 2 spaces at class level)
-  const companionObjectIndentPattern = /^(\s*)companion\s+object\s*\{/m;
-  const companionObjectIndentMatch = modifiedContent.match(companionObjectIndentPattern);
-  if (companionObjectIndentMatch && companionObjectIndentMatch[1] !== '  ') {
-    // Replace companion object with correct indentation
-    modifiedContent = modifiedContent.replace(
-      companionObjectIndentPattern,
-      '  companion object {'
-    );
   }
   
   return modifiedContent;
