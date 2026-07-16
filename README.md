@@ -9,6 +9,7 @@
 - 🎨 **Multiple Display Modes**: WebView HTML, .9 image, background+WebView blend mode, and icon+background color mode
 - 🚀 **Custom Complex Splash**: Use WebView or Blend mode to create complex splash screens (privacy dialogs, animations, etc.)
 - 📦 **Ready-to-Use Templates**: Complete WebView HTML template files with dev and build support
+- 🌐 **HarmonyOS Support**: Native splash screen for HarmonyOS via ArkUI + transparent WebView (blend-mode parity with iOS/Android). See [HarmonyOS guide](./harmony/README.md)
 - 🎯 **Easy Integration**: Simple configuration with automatic native code generation
 
 ### Installation
@@ -85,6 +86,7 @@ Full API reference and guides available at:
 - [Examples](./docs/examples.md)
 - [Platform-Specific Details](./docs/platform-specific.md)
 - [Known Issues](./docs/known-issues.md)
+- [HarmonyOS Guide](./harmony/README.md)
 
 ### Contributing
 

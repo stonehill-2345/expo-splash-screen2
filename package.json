@@ -1,6 +1,6 @@
 {
   "name": "expo-splash-screen2",
-  "version": "1.3.2",
+  "version": "1.3.3",
   "description": "Enhance the development experience on the basis of expo-splash-screen  with web and .9",
   "main": "build",
   "types": "build",
@@ -17,6 +17,7 @@
     "expo-module.config.json",
     "scripts",
     "expo-splash-web",
+    "harmony",
     "!tests",
     "!**/__tests__",
     "!**/__fixtures__",

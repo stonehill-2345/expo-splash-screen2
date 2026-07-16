@@ -9,6 +9,7 @@
 - 🎨 **多种显示模式**：WebView HTML、.9 图片、背景+WebView 混合模式和图标+背景颜色模式
 - 🚀 **自定义复杂开屏**：使用 WebView 或 Blend 模式可自定义复杂开屏（协议弹框、动画效果等）
 - 📦 **开箱即用的模板**：提供完整的 WebView HTML 模板文件，支持开发模式（dev）和生产构建（build）
+- 🌐 **鸿蒙平台支持**：通过 ArkUI + 透明 WebView 提供鸿蒙原生开屏（与 iOS/Android blend 模式对齐）。详见[鸿蒙适配指南](./harmony/README.md)
 - 🎯 **易于集成**：简单配置即可自动添加原生代码，无需手动修改
 
 
@@ -86,6 +87,7 @@ export default function App() {
 - [示例](./docs/examples.zh.md)
 - [平台特定详情](./docs/platform-specific.zh.md)
 - [已知问题](./docs/known-issues.zh.md)
+- [鸿蒙适配指南](./harmony/README.md)
 
 ### 贡献
 

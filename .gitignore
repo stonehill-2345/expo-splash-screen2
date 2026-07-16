@@ -11,6 +11,7 @@ node_modules/
 
 # Build artifacts
 android/build/
+android/.gradle/
 ios/build/
 plugin/build/
 plugin/tsconfig.tsbuildinfo
