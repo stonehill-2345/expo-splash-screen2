@@ -26,6 +26,16 @@ interface SplashHtmlConfig {
   image?: string;
   imageWidth?: number;
   localHtmlPath?: string;
+  android?: {
+    image?: string;
+  };
+  ios?: {
+    image?: string;
+  };
+  harmony?: {
+    image?: string;
+    backgroundColor?: string;
+  };
   // Dark mode configuration (only valid in normal mode)
   dark?: {
     image?: string;           // Dark mode image path
@@ -5771,10 +5781,10 @@ export const withSplashHtml: ConfigPlugin<SplashHtmlConfig> = (config, props) =>
   // 这样可以覆盖 expo-splash-screen 等插件的默认配置
   // 注意：responsiveImage 和 normal 模式已经在各自的 setup 函数中处理了 storyboard
   if (mode === 'webview' && resultConfig) {
-    const backgroundColor = pluginConfig?.backgroundColor || 
-                            config.splash?.backgroundColor || 
+    const backgroundColor = pluginConfig?.backgroundColor ||
+                            config.splash?.backgroundColor ||
                             '#ffffff';
-    const imagePath = pluginConfig?.image;
+    const imagePath = pluginConfig?.ios?.image || pluginConfig?.image;
     const imageWidth = pluginConfig?.imageWidth ?? 100;
     
     // 如果配置了 image，先复制 icon 到 iOS bundle
@@ -5906,8 +5916,9 @@ export const withSplashHtml: ConfigPlugin<SplashHtmlConfig> = (config, props) =>
 function setupImageMode(config: any, pluginConfig: SplashHtmlConfig): any {
   const packageName = config.android?.package || 'com.anonymous.MyNewExpoSplashDemo';
   const bundleIdentifier = config.ios?.bundleIdentifier || 'com.anonymous.MyNewExpoSplashDemo';
-  
-  if (!pluginConfig.image) {
+  const androidImage = pluginConfig.android?.image || pluginConfig.image;
+  const iosImage = pluginConfig.ios?.image || pluginConfig.image;
+  if (!androidImage && !iosImage) {
     console.warn('[expo-splash-screen2] image is required for responsiveImage mode');
     return config;
   }
@@ -5938,10 +5949,11 @@ function setupImageMode(config: any, pluginConfig: SplashHtmlConfig): any {
         fs.mkdirSync(androidMainPath, { recursive: true });
       }
 
+      if (!androidImage) return config;
       // 复制背景图到 Android 资源目录
       const imageResourceName = copyBackgroundImage(
         projectRoot,
-        pluginConfig.image!,
+        androidImage!,
         androidMainPath
       );
 
@@ -5963,6 +5975,7 @@ function setupImageMode(config: any, pluginConfig: SplashHtmlConfig): any {
 
   // 使用 withAndroidStyles 修改 styles.xml（推荐方式，不会被其他插件覆盖）
   config = withAndroidStyles(config, (config) => {
+    if (!androidImage) return config;
     // withAndroidStyles 提供 modResults，直接使用它
     if (!config.modResults) {
       return config;
@@ -5993,12 +6006,14 @@ function setupImageMode(config: any, pluginConfig: SplashHtmlConfig): any {
 
   // 修改 AndroidManifest.xml，设置 MainActivity 主题为 @style/AppTheme
   config = withAndroidManifest(config, (config) => {
+    if (!androidImage) return config;
     config.modResults = modifyAndroidManifestForImageMode(config.modResults, packageName);
     return config;
   });
 
   // 修改 MainActivity.kt，添加图片容器
   config = withMainActivity(config, (config) => {
+    if (!androidImage) return config;
     const imageResourceName = 'splash_background_image';
     config.modResults.contents = modifyMainActivityForImageMode(
       config.modResults.contents,
@@ -6022,10 +6037,11 @@ function setupImageMode(config: any, pluginConfig: SplashHtmlConfig): any {
         return config;
       }
 
+      if (!iosImage) return config;
       // 复制背景图到 iOS bundle
       const imageFileName = copyBackgroundImageToIOS(
         projectRoot,
-        pluginConfig.image!,
+        iosImage!,
         iosPath,
         projectName
       );
@@ -6051,8 +6067,9 @@ function setupImageMode(config: any, pluginConfig: SplashHtmlConfig): any {
       const iosPath = path.join(projectRoot, 'ios');
       const projectName = config.modRequest.projectName || 'MyNewExpoSplashDemo';
       
+      if (!iosImage) return config;
       // 获取背景图文件名
-      const backgroundImagePath = path.resolve(projectRoot, pluginConfig.image!);
+      const backgroundImagePath = path.resolve(projectRoot, iosImage!);
       const ext = path.extname(backgroundImagePath);
       const imageFileName = `splash_background_image${ext}`;
       
@@ -6076,8 +6093,9 @@ function setupImageMode(config: any, pluginConfig: SplashHtmlConfig): any {
         const projectName = config.modRequest.projectName || 'MyNewExpoSplashDemo';
         const storyboardPath = path.join(iosPath, projectName, 'SplashScreen.storyboard');
         
+        if (!iosImage) return config;
         if (fs.existsSync(storyboardPath)) {
-          const backgroundImagePath = path.resolve(projectRoot, pluginConfig.image!);
+          const backgroundImagePath = path.resolve(projectRoot, iosImage!);
           const ext = path.extname(backgroundImagePath);
           const imageFileName = `splash_background_image${ext}`;
           
@@ -6102,10 +6120,11 @@ function setupImageMode(config: any, pluginConfig: SplashHtmlConfig): any {
 
   // 修改 AppDelegate.swift，添加图片容器
   config = withAppDelegate(config, (config) => {
+    if (!iosImage) return config;
     if (config.modResults.language === 'swift') {
       const backgroundImagePath = path.resolve(
         config.modRequest.projectRoot || '',
-        pluginConfig.image!
+        iosImage!
       );
       const ext = path.extname(backgroundImagePath);
       const imageFileName = `splash_background_image${ext}`;
@@ -6121,6 +6140,7 @@ function setupImageMode(config: any, pluginConfig: SplashHtmlConfig): any {
 
   // 修改 Xcode 项目，添加背景图文件引用
   config = withXcodeProject(config, (config) => {
+    if (!iosImage) return config;
     const proj = config.modResults;
     const projectRoot = config.modRequest.projectRoot || '';
     const projectName = config.modRequest.projectName;
@@ -6130,7 +6150,7 @@ function setupImageMode(config: any, pluginConfig: SplashHtmlConfig): any {
       return config;
     }
 
-    const backgroundImagePath = path.resolve(projectRoot, pluginConfig.image!);
+    const backgroundImagePath = path.resolve(projectRoot, iosImage!);
     const ext = path.extname(backgroundImagePath);
     const imageFileName = `splash_background_image${ext}`;
     const filePath = path.join(iosPath, projectName, imageFileName);
@@ -6164,9 +6184,10 @@ function setupImageMode(config: any, pluginConfig: SplashHtmlConfig): any {
 function setupNormalMode(config: any, pluginConfig: SplashHtmlConfig): any {
   const packageName = config.android?.package || 'com.anonymous.MyNewExpoSplashDemo';
   const bundleIdentifier = config.ios?.bundleIdentifier || 'com.anonymous.MyNewExpoSplashDemo';
-  
+  const androidImage = pluginConfig.android?.image || pluginConfig.image;
+  const iosImage = pluginConfig.ios?.image || pluginConfig.image;
   // 必填字段检查
-  if (!pluginConfig.image) {
+  if (!androidImage && !iosImage) {
     throw new Error('[expo-splash-screen2] image is required for normal mode');
   }
   
@@ -6209,8 +6230,9 @@ function setupNormalMode(config: any, pluginConfig: SplashHtmlConfig): any {
         return config;
       }
 
+      if (!androidImage) return config;
       // 1. 复制图片资源到 drawable-xxhdpi (浅色模式)
-      const imagePath = path.resolve(projectRoot, pluginConfig.image!);
+      const imagePath = path.resolve(projectRoot, androidImage!);
       const ext = path.extname(imagePath);
       const targetFileName = `splash_icon${ext}`;
       const drawableXxhdpiPath = path.join(androidMainPath, 'res', 'drawable-xxhdpi');
@@ -6251,7 +6273,7 @@ function setupNormalMode(config: any, pluginConfig: SplashHtmlConfig): any {
       createSplashScreenLogoForNormalMode(
         projectRoot,
         androidMainPath,
-        pluginConfig.image!,
+        androidImage!,
         backgroundColor,
         imageWidth,
         darkImage, // 传递相对路径，函数内部会解析
@@ -6273,6 +6295,7 @@ function setupNormalMode(config: any, pluginConfig: SplashHtmlConfig): any {
 
   // 修改 MainActivity.kt，添加固定宽度的图片容器（支持深色模式）
   config = withMainActivity(config, (config) => {
+    if (!androidImage) return config;
     config.modResults.contents = modifyMainActivityForNormalMode(
       config.modResults.contents,
       packageName,
@@ -6292,8 +6315,9 @@ function setupNormalMode(config: any, pluginConfig: SplashHtmlConfig): any {
       const iosPath = path.join(projectRoot, 'ios');
       const projectName = cfg.modRequest.projectName || 'MyNewExpoSplashDemo';
       
+      if (!iosImage) return cfg;
       // 创建 Asset Catalog imageset 用于支持深色模式
-      const imagePath = path.resolve(projectRoot, pluginConfig.image!);
+      const imagePath = path.resolve(projectRoot, iosImage!);
       const darkImagePath = hasDarkMode && darkImage ? path.resolve(projectRoot, darkImage) : null;
       
       // 确保 Images.xcassets 目录存在
@@ -6343,7 +6367,8 @@ function setupNormalMode(config: any, pluginConfig: SplashHtmlConfig): any {
   config = withIosSplashScreenStoryboard(config, async (cfg) => {
     console.log('[expo-splash-screen2] Modifying iOS storyboard for Normal mode222');
     const xml = cfg.modResults;
-    const imagePath = pluginConfig.image!;
+    if (!iosImage) return cfg;
+    const imagePath = iosImage!;
     const ext = path.extname(imagePath);
     // 使用 imageset 名称（不带扩展名），Asset Catalog 会自动处理深色模式
     const iconFileName = `splash-icon${ext}`; // 用于获取文件名，但实际引用使用不带扩展名的名称
@@ -6378,10 +6403,11 @@ function setupNormalMode(config: any, pluginConfig: SplashHtmlConfig): any {
   
   // 修改 AppDelegate.swift，添加图片容器（normal 模式使用固定宽度，支持深色模式）
   config = withAppDelegate(config, (config) => {
+    if (!iosImage) return config;
     if (config.modResults.language === 'swift') {
       const imagePath = path.resolve(
         config.modRequest.projectRoot || '',
-        pluginConfig.image!
+        iosImage!
       );
       const ext = path.extname(imagePath);
       const iconFileName = `splash-icon${ext}`;
@@ -6419,7 +6445,9 @@ function setupNormalMode(config: any, pluginConfig: SplashHtmlConfig): any {
  */
 function setupWebViewMode(config: any, pluginConfig: SplashHtmlConfig): any {
   const packageName = config.android?.package || 'com.anonymous.MyNewExpoSplashDemo';
-  
+  const androidImage = pluginConfig.android?.image || pluginConfig.image;
+  const iosImage = pluginConfig.ios?.image || pluginConfig.image;
+
   // 注意：不注册 BaseMod provider，因为 Expo 的默认插件已经注册了
   // 我们直接使用 withIosSplashScreenStoryboard 修改 storyboard
 
@@ -6522,7 +6550,7 @@ function setupWebViewMode(config: any, pluginConfig: SplashHtmlConfig): any {
       }
 
       // 复制 icon 文件（优先使用 pluginConfig.image，其次使用 config.icon）
-      const iconPath = pluginConfig.image || config.icon;
+      const iconPath = androidImage || config.icon;
       const imageWidth = pluginConfig.imageWidth ?? 100;
       if (iconPath) {
         // androidMainPath 已经是 android/app/src/main，所以直接使用
@@ -6638,7 +6666,7 @@ function setupWebViewMode(config: any, pluginConfig: SplashHtmlConfig): any {
                           '#ffffff';
   
   // 如果配置了 image，复制 icon 到 iOS bundle
-  const imagePath = pluginConfig?.image;
+  const imagePath = iosImage;
   const imageWidth = pluginConfig?.imageWidth ?? 100;
   if (imagePath) {
     config = withDangerousMod(config, [
@@ -7064,8 +7092,9 @@ end`;
 function setupBlendMode(config: any, pluginConfig: SplashHtmlConfig): any {
   const packageName = config.android?.package || 'com.anonymous.MyNewExpoSplashDemo';
   const bundleIdentifier = config.ios?.bundleIdentifier || 'com.anonymous.MyNewExpoSplashDemo';
-  
-  if (!pluginConfig.image) {
+  const androidImage = pluginConfig.android?.image || pluginConfig.image;
+  const iosImage = pluginConfig.ios?.image || pluginConfig.image;
+  if (!androidImage && !iosImage) {
     console.warn('[expo-splash-screen2] image is required for blend mode');
     return config;
   }
@@ -7151,10 +7180,11 @@ function setupBlendMode(config: any, pluginConfig: SplashHtmlConfig): any {
         fs.mkdirSync(androidMainPath, { recursive: true });
       }
 
+      if (!androidImage) return config;
       // 复制.9图到drawable-xxhdpi（类似responsiveImage模式）
       const imageResourceName = copyBackgroundImage(
         projectRoot,
-        pluginConfig.image!,
+        androidImage!,
         androidMainPath
       );
 
@@ -7199,12 +7229,14 @@ function setupBlendMode(config: any, pluginConfig: SplashHtmlConfig): any {
 
   // 修改 AndroidManifest.xml（blend模式下MainActivity使用Theme.App.SplashScreen）
   config = withAndroidManifest(config, (config) => {
+    if (!androidImage) return config;
     config.modResults = modifyAndroidManifestForBlendMode(config.modResults, packageName);
     return config;
   });
 
   // 修改 MainActivity.kt（WebView容器背景使用.9图）
   config = withMainActivity(config, (config) => {
+    if (!androidImage) return config;
     const edgeToEdgeEnabled = config.android?.edgeToEdgeEnabled;
     config.modResults.contents = modifyMainActivityForBlendMode(
       config.modResults.contents,
@@ -7217,6 +7249,7 @@ function setupBlendMode(config: any, pluginConfig: SplashHtmlConfig): any {
 
   // 修改 styles.xml，设置windowBackground为.9图（类似responsiveImage模式）
   config = withAndroidStyles(config, (config) => {
+    if (!androidImage) return config;
     if (!config.modResults) {
       return config;
     }
@@ -7298,9 +7331,10 @@ function setupBlendMode(config: any, pluginConfig: SplashHtmlConfig): any {
       const iosPath = path.join(projectRoot, 'ios');
       const projectName = config.modRequest.projectName || 'MyNewExpoSplashDemo';
       
+      if (!iosImage) return config;
       const imageFileName = copyBackgroundImageToIOS(
         projectRoot,
-        pluginConfig.image!,
+        iosImage!,
         iosPath,
         projectName
       );
@@ -7336,9 +7370,10 @@ function setupBlendMode(config: any, pluginConfig: SplashHtmlConfig): any {
     const xml = config.modResults;
     const projectRoot = config.modRequest.projectRoot || '';
     
+    if (!iosImage) return config;
     // blend模式：使用.9图作为背景（和responsiveImage模式一样）
     // 获取.9图文件名（应该已经在withDangerousMod中复制了）
-    const backgroundImagePath = path.resolve(projectRoot, pluginConfig.image!);
+    const backgroundImagePath = path.resolve(projectRoot, iosImage!);
     const ext = path.extname(backgroundImagePath);
     const imageFileName = `splash_background_image${ext}`;
     
@@ -7356,6 +7391,7 @@ function setupBlendMode(config: any, pluginConfig: SplashHtmlConfig): any {
 
   // 修改 AppDelegate.swift（WebView容器背景使用.9图）
   config = withAppDelegate(config, (config) => {
+    if (!iosImage) return config;
     if (config.modResults.language === 'swift') {
       config.modResults.contents = modifyAppDelegateForBlendMode(
         config.modResults.contents,
@@ -7368,17 +7404,101 @@ function setupBlendMode(config: any, pluginConfig: SplashHtmlConfig): any {
 
   // 修改 Info.plist
   config = withInfoPlist(config, (config) => {
+    if (!iosImage) return config;
     config.modResults = modifyInfoPlist(config.modResults);
     return config;
   });
 
   // 修改 Xcode 项目文件
   config = withXcodeProject(config, (config) => {
-    const configWithIcon = { ...config, icon: pluginConfig.image };
+    if (!iosImage) return config;
+    const configWithIcon = { ...config, icon: iosImage };
     modifyXcodeProject(configWithIcon, pluginConfig, configWithIcon);
     return configWithIcon;
   });
 
+  return config;
+}
+
+/**
+ * 拷贝开屏背景图到鸿蒙 rawfile 目录（ArkUI Image 加载）。
+ * 鸿蒙 ArkUI 不解析 Android .9 标记，直接按普通图渲染（objectFit: Cover 裁掉 1px 黑边）。
+ */
+function copySplashImageToHarmony(projectRoot: string, imagePath: string | undefined, rawfileDir: string): string | null {
+  try {
+    if (!imagePath) {
+      return null;
+    }
+    const sourcePath = path.resolve(projectRoot, imagePath);
+    if (!fs.existsSync(sourcePath)) {
+      console.warn(`[expo-splash-screen2] Harmony background image file not found: ${sourcePath}`);
+      return null;
+    }
+    if (!fs.existsSync(rawfileDir)) {
+      fs.mkdirSync(rawfileDir, { recursive: true });
+    }
+    const targetFileName = 'expo_splash.png';
+    const targetPath = path.join(rawfileDir, targetFileName);
+    fs.copyFileSync(sourcePath, targetPath);
+    return targetFileName;
+  } catch (error) {
+    console.error(`[expo-splash-screen2] Error copying harmony background image: ${error}`);
+    return null;
+  }
+}
+
+/**
+ * 写入鸿蒙 element/color.json 的 expo_splash_background 颜色项。
+ */
+function writeHarmonySplashColor(elementDir: string, backgroundColor: string | undefined): boolean {
+  try {
+    if (!fs.existsSync(elementDir)) {
+      fs.mkdirSync(elementDir, { recursive: true });
+    }
+    const colorJsonPath = path.join(elementDir, 'color.json');
+    let colorJson: { color: Array<{ name: string; value: string }> } = { color: [] };
+    if (fs.existsSync(colorJsonPath)) {
+      const raw = fs.readFileSync(colorJsonPath, 'utf8');
+      colorJson = JSON.parse(raw);
+      if (!colorJson.color || !Array.isArray(colorJson.color)) {
+        colorJson.color = [];
+      }
+    }
+    let normalized = (backgroundColor || '#ffffff').trim();
+    if (!normalized.startsWith('#')) {
+      normalized = '#' + normalized;
+    }
+    const existing = colorJson.color.find((c) => c?.name === 'expo_splash_background');
+    if (existing) {
+      existing.value = normalized;
+    } else {
+      colorJson.color.push({ name: 'expo_splash_background', value: normalized });
+    }
+    fs.writeFileSync(colorJsonPath, JSON.stringify(colorJson, null, 2));
+    return true;
+  } catch (error) {
+    console.error(`[expo-splash-screen2] Error writing harmony color.json: ${error}`);
+    return false;
+  }
+}
+
+/**
+ * 设置鸿蒙开屏：拷贝背景图到 rawfile + 写背景色到 color.json。
+ * 鸿蒙构建不跑 Expo config-plugin，故由使用方（如 setup-splash-harmony.js）显式调用本函数。
+ */
+export function setupHarmonyMode(config: any, pluginConfig: SplashHtmlConfig): any {
+  const harmonyImage = pluginConfig?.harmony?.image || pluginConfig?.image;
+  const backgroundColor = pluginConfig?.harmony?.backgroundColor || pluginConfig?.backgroundColor || '#ffffff';
+  if (!harmonyImage) {
+    console.warn('[expo-splash-screen2] image is required for harmony mode');
+    return config;
+  }
+  const projectRoot = config?.modRequest?.projectRoot || config?.projectRoot || process.cwd();
+  const resourcesDir = path.join(projectRoot, 'harmony', 'entry', 'src', 'main', 'resources');
+  const rawfileDir = path.join(resourcesDir, 'rawfile');
+  const elementDir = path.join(resourcesDir, 'base', 'element');
+  copySplashImageToHarmony(projectRoot, harmonyImage, rawfileDir);
+  writeHarmonySplashColor(elementDir, backgroundColor);
   return config;
 }
 
